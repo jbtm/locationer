@@ -37,12 +37,13 @@ For each numbered entry, return one JSON object in an array:
   "title":    "<max 60 chars, human-readable, same language as the input>",
   "country":  "<English country name, or empty string>",
   "region":   "<canton, state, province or county — e.g. 'Graubünden', 'Lombardia', 'Bavaria' — empty string if not mentioned>",
-  "city":     "<city or town name, or empty string>",
+  "city":     "<city or town name including disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen', or empty string>",
   "location": "<most specific named place – e.g. 'Schloss Vaduz', 'Pontresina Bahnhof', 'Viamala-Schlucht', 'Montalinschulhaus', 'Quaderschulhaus' – empty string if only a city, portrait, or generic scene>"
 }
 
 Rules for `location`:
-- Use the ORIGINAL language spelling — never translate. 'Montalinschulhaus' stays 'Montalinschulhaus', not 'Montalin Schoolhouse'.
+- Never translate. Use the original language.
+- Split compound nouns when the prefix is a proper noun: 'Montalinschulhaus' → 'Montalin Schulhaus', 'Quaderschulhaus' → 'Quader Schulhaus', 'Kirchlein Mutten' stays as is (both parts are already separate words).
 - If the title itself is a specific named place (especially a compound noun with a proper-noun prefix like 'Montalin-', 'Quader-', 'Kirch-', 'Schloss-'), use it as the location.
 - Generic words alone (Kirche, Bahnhof, Schulhaus, Hotel) without a proper-noun modifier → empty string.
 
@@ -112,10 +113,11 @@ def _meta_raw_key(row: dict) -> str:
 class InputNormalizer:
     BATCH_SIZE = 20
 
-    def __init__(self, cache: Cache, debug: bool = False, tgn_db=None):
+    def __init__(self, cache: Cache, debug: bool = False, tgn_db=None, geo_db=None):
         self.cache = cache
         self.debug = debug
         self.tgn_db = tgn_db   # Optional TgnDatabase for Phase 1c
+        self.geo_db = geo_db   # Optional GeoDatabase for country_code resolution in Phase 1c
         self._client: Optional[anthropic.Anthropic] = None
 
     @property
@@ -166,7 +168,11 @@ class InputNormalizer:
             hits = 0
             for rec in normalized:
                 if rec.location:
-                    row = self.tgn_db.find(rec.location)
+                    country_code = (
+                        self.geo_db.country_to_code(rec.country)
+                        if self.geo_db and rec.country else None
+                    )
+                    row = self.tgn_db.find(rec.location, country_code=country_code)
                     if row and row["lat"] is not None:
                         rec.tgn_id   = row["tgn_id"]
                         rec.tgn_name = row["pref_name"] or rec.location

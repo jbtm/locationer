@@ -111,7 +111,12 @@ class TgnDatabase:
             return None
 
         # Prefer precise types over inhabited places
-        precise = [c for c in candidates if (c["place_type"] or "").lower() in PRECISE_TYPES]
+        # TGN stores singular ("mountain") but PRECISE_TYPES uses plural ("mountains")
+        def _is_precise(row) -> bool:
+            pt = (row["place_type"] or "").lower()
+            return pt in PRECISE_TYPES or (pt + "s") in PRECISE_TYPES
+
+        precise = [c for c in candidates if _is_precise(c)]
         return precise[0] if precise else candidates[0]
 
     def get_by_id(self, tgn_id: str) -> Optional[sqlite3.Row]:

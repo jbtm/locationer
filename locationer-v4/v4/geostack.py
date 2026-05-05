@@ -159,6 +159,15 @@ class GeoStack:
                 self.nominatim._last_error = ""
             if nm:
                 self.ext_count += 1
+                # Proximity check: if we have a city anchor and Nominatim's precise hit
+                # is too far away, it matched a homonym in a different place — retry
+                # with city+country to find the geographically correct result.
+                if nm.get("precise") and near and record.location:
+                    dist = _dist_km(nm["lat"], nm["lon"], near[0], near[1])
+                    if dist > 50:
+                        dbg.append(f"Nominatim precise hit {nm['name']!r} rejected ({dist:.0f} km from city)")
+                        nm2 = self.nominatim.search(query)
+                        nm = nm2 if nm2 else nm  # fall back to original if retry also fails
                 ext_result = {**nm, "source": "nominatim"}
                 dbg.append(f"Nominatim hit: {nm['name']} (precise={nm['precise']})")
             else:

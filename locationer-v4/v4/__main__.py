@@ -275,7 +275,7 @@ def main():
     _ext_conn = _sqlite3.connect(_CACHE_DEFAULT)
     nominatim = Nominatim(_ext_conn, base_url=_NOMINATIM_URL, user_agent=_NOMINATIM_UA,
                           debug=(args.mode == "debug"))
-    normalizer = InputNormalizer(cache, debug=(args.mode == "debug"), tgn_db=tgn_db)
+    normalizer = InputNormalizer(cache, debug=(args.mode == "debug"), tgn_db=tgn_db, geo_db=geo_db)
     geostack   = GeoStack(geo_db, cache, nominatim,
                           debug=(args.mode == "debug"), overrides=overrides,
                           tgn_db=tgn_db)

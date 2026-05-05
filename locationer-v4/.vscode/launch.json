@@ -1,0 +1,68 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TestFile (human)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "v4",
+      "args": ["v4/TestFile.csv", "--mode", "human"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "TestFile (debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "v4",
+      "args": ["v4/TestFile.csv", "--mode", "debug"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "TestFile (debug, 10 Zeilen)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "v4",
+      "args": ["v4/TestFile.csv", "--mode", "debug", "--limit", "10"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "ZIN_Complete (100 Zeilen)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "v4",
+      "args": ["v4/ZIN_Complete.csv", "--limit", "100", "--mode", "human"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Eigenes File…",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "v4",
+      "args": ["${input:inputFile}", "--mode", "human"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "inputFile",
+      "type": "promptString",
+      "description": "Pfad zum Input-File (z.B. v4/MeinFile.csv)",
+      "default": "v4/TestFile.csv"
+    }
+  ]
+}
