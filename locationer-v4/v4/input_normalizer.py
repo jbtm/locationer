@@ -34,18 +34,25 @@ You extract structured location metadata for a historical photo archive.
 
 For each numbered entry, return one JSON object in an array:
 {
-  "title":    "<max 60 chars, human-readable, same language as the input>",
-  "country":  "<English country name, or empty string>",
-  "region":   "<canton, state, province or county — e.g. 'Graubünden', 'Lombardia', 'Bavaria' — empty string if not mentioned>",
-  "city":     "<city or town name including disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen', or empty string>",
-  "location": "<most specific named place – e.g. 'Schloss Vaduz', 'Pontresina Bahnhof', 'Viamala-Schlucht', 'Montalinschulhaus', 'Quaderschulhaus' – empty string if only a city, portrait, or generic scene>"
+  "title":         "<max 60 chars, human-readable, same language as the input>",
+  "country":       "<English country name, or empty string>",
+  "region":        "<canton, state, province or county — e.g. 'Graubünden', 'Lombardia', 'Bavaria' — empty string if not mentioned>",
+  "city":          "<city or town name including disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen', or empty string>",
+  "location":      "<most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht' – empty string if only a city, portrait, or generic scene>",
+  "location_type": "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'Schulhaus', 'église', 'stazione' — null otherwise>"
 }
 
 Rules for `location`:
 - Never translate. Use the original language.
-- Split compound nouns when the prefix is a proper noun: 'Montalinschulhaus' → 'Montalin Schulhaus', 'Quaderschulhaus' → 'Quader Schulhaus', 'Kirchlein Mutten' stays as is (both parts are already separate words).
+- Split compound nouns when the prefix is a proper noun: 'Montalinschulhaus' → 'Montalin Schulhaus', 'Quaderschulhaus' → 'Quader Schulhaus'.
 - If the title itself is a specific named place (especially a compound noun with a proper-noun prefix like 'Montalin-', 'Quader-', 'Kirch-', 'Schloss-'), use it as the location.
 - Generic words alone (Kirche, Bahnhof, Schulhaus, Hotel) without a proper-noun modifier → empty string.
+
+Rules for `location_type`:
+- Only set when `location` is empty and a generic building type is clearly present.
+- Use the word exactly as it appears in the input: 'Bahnhof' not 'railway station', 'Kirche' not 'church'.
+- Examples: 'Göschenen, Bahnhof, Gotthardbahn' → location='', location_type='Bahnhof'
+- If `location` is non-empty, set location_type to null.
 
 HTML entities are already decoded. Return ONLY the JSON array, no prose.\
 """
@@ -118,6 +125,7 @@ class InputNormalizer:
         self.debug = debug
         self.tgn_db = tgn_db   # Optional TgnDatabase for Phase 1c
         self.geo_db = geo_db   # Optional GeoDatabase for country_code resolution in Phase 1c
+        self.haiku_count = 0   # Total Haiku API calls (Phase 1a + 1b)
         self._client: Optional[anthropic.Anthropic] = None
 
     @property
@@ -225,6 +233,7 @@ class InputNormalizer:
             )[:400]
             lines.append(f'{idx + 1}. "{text}"')
 
+        self.haiku_count += 1
         response = self.client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=max(len(batch) * 60, 256),
@@ -259,9 +268,10 @@ class InputNormalizer:
 
         prompt = "Entries:\n" + "\n".join(lines)
 
+        self.haiku_count += 1
         response = self.client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=max(len(batch) * 160, 512),
+            max_tokens=max(len(batch) * 220, 512),
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -276,14 +286,31 @@ class InputNormalizer:
         records = []
         for i, item in enumerate(data):
             _, _, mapped = batch[i]
+            ai_city    = str(item.get("city", "")).strip()
+            input_city = str(mapped.get("city", "")).strip()
+            # If AI city has no substring relation to the input value, the AI likely
+            # corrupted it (e.g. "Luzern" → "Lzern"). Fall back to the original.
+            if (input_city and ai_city
+                    and input_city.lower() not in ai_city.lower()
+                    and ai_city.lower() not in input_city.lower()):
+                city = _normalize_city(input_city)
+            else:
+                city = _normalize_city(ai_city if ai_city else input_city)
+            location = str(item.get("location", ""))
+            # If Haiku found no specific location but identified a generic building
+            # type, construct a search string: "Railway Station Göschenen"
+            if not location and city:
+                loc_type = (item.get("location_type") or "").strip()
+                if loc_type:
+                    location = f"{loc_type.title()} {city}"
             records.append(
                 NormalizedRecord(
                     title=str(item.get("title", mapped.get("title", "")))[:60],
                     description=mapped.get("description", ""),
                     country=str(item.get("country", mapped.get("country", ""))),
                     region=str(item.get("region", "")),
-                    city=_normalize_city(str(item.get("city", mapped.get("city", "")))),
-                    location=str(item.get("location", "")),
+                    city=city,
+                    location=location,
                 )
             )
         return records

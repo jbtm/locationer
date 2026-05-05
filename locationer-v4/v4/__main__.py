@@ -113,7 +113,7 @@ def _human(i: int, total: int, rec: NormalizedRecord, geo: GeoResult,
     fb = " (city fallback)" if geo.fallback else ""
     src = geo.source if geo.source != "none" else "—"
     title = rec.title[:48].ljust(49)
-    g_str = f"  [G:{google_total}]" if google_total else ""
+    g_str = f"  [N:{google_total}]" if google_total else ""
     print(f"[{i:>5}/{total}] {title}  {loc:<28}  {score_label}  {src}{fb}{_dev_str(geo, true)}{g_str}")
 
 
@@ -314,11 +314,12 @@ def main():
         written += len(output_rows)
 
         if args.chunk_size:
-            print(f"   → {written}/{total} geschrieben  |  Google bisher: {geostack.google_count}")
+            print(f"   → {written}/{total} geschrieben  |  Nominatim bisher: {geostack.ext_count}")
 
     print(f"\n{'─'*70}")
     print(f"Output:          {out_path}")
-    print(f"Ext requests (Wikidata+Nominatim): {geostack.ext_count}")
+    print(f"Haiku calls (Phase 1a+1b): {normalizer.haiku_count}")
+    print(f"Nominatim calls:           {geostack.ext_count}")
     print()
 
     cache.close()
