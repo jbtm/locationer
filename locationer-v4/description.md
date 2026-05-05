@@ -152,17 +152,29 @@ Eingabe (CSV/XLSX)
 ### Phase 1a — Normalisierung
 
 Claude Haiku extrahiert aus Titel und Beschreibung:
-- `title`: bereinigter Titel (max. 60 Zeichen, Originalsprache)
-- `country`: Landesname auf Englisch
-- `city`: Stadt oder Ortschaft
-- `location`: spezifischer benannter Ort für die Geocodierung — nur wenn ein konkretes Objekt vorliegt (z.B. `"Schloss Vaduz"`, `"Viamala-Schlucht"`, `"Montalinschulhaus"`), sonst leer
 
-Regel für `location`: Genauer Name eines geographischen Objekts in Originalsprache. Generische Begriffe ohne Eigennamenpräfix (`Kirche`, `Bahnhof`, `Hotel`) → leer.
+| Feld | Beschreibung |
+|---|---|
+| `title` | Bereinigter Titel (max. 60 Zeichen, Originalsprache) |
+| `country` | Landesname auf Englisch |
+| `region` | Kanton, Bundesland, Provinz (z.B. `"Graubünden"`, `"Bavaria"`) — leer wenn nicht erwähnt |
+| `city` | Stadt oder Ortschaft inkl. Disambiguierungssuffix (z.B. `"Bingen am Rhein"` statt `"Bingen"`) |
+| `location` | Spezifischer benannter Ort in Originalsprache (z.B. `"Schloss Vaduz"`, `"Montalin Schulhaus"`) — leer wenn nur Stadt, Portrait oder generische Szene |
+| `location_type` | Generischer Gebäudetyp im Originalwort wenn `location` leer (z.B. `"Bahnhof"`, `"Kirche"`) — kombiniert mit city zu Nominatim-Query |
+
+Regeln für `location`:
+- Originalsprache, nie übersetzen
+- Komposita mit Eigennamenpräfix aufbrechen: `"Montalinschulhaus"` → `"Montalin Schulhaus"`, `"Quaderschulhaus"` → `"Quader Schulhaus"`
+- Generische Wörter allein ohne Eigennamenpräfix → leer; stattdessen `location_type` setzen
+
+`location_type`-Mechanismus: Wenn Haiku `location_type="Bahnhof"` und `city="Göschenen"` zurückgibt, setzt die Pipeline `location="Bahnhof Göschenen"` → Nominatim findet das OSM-Objekt in der richtigen Sprache.
 
 Nach dem AI-Call normalisiert der Code Stadtnamen:
-- `"7000 Chur"` → `"Chur"` (Postleitzahlen entfernen)
-- `"Chur GR"` → `"Chur"` (Kantonskürzeln entfernen)
+- `"7000 Chur"` → `"Chur"` (Postleitzahlen)
+- `"Chur GR"` → `"Chur"` (Kantonskürzeln)
 - `"Kilchberg (ZH)"` → `"Kilchberg"`
+
+Robustheit: Wenn Haiku den Input-Stadtnamen kürzer zurückgibt als der Originalwert und kein Teilstring-Verhältnis besteht (z.B. `"Lzern"` ≠ `"Luzern"`), wird der Originalwert aus dem Input bevorzugt.
 
 ### Phase 1b — Metadaten
 
@@ -175,7 +187,7 @@ Nur explizit im Text genannte Werte werden extrahiert, keine Inferenz.
 
 ### Phase 1c — TGN-Lookup
 
-Lokaler SQLite-Lookup auf `rec.location` (dem Haiku-Output). Wenn TGN den Namen kennt, wird `tgn_id` im `NormalizedRecord` gesetzt. Dieser ID-Zeiger wird in Phase 2 (Step 2.5) genutzt.
+Lokaler SQLite-Lookup auf `rec.location`. Der `country_code` (aus `rec.country` via GeoNames aufgelöst) wird mitgegeben, damit TGN bei Homonymen die geografisch korrekte Variante bevorzugt (z.B. `"Tödi"` → Schweizer Berg, nicht gleichnamiger Fluss in Pakistan). Wenn TGN einen Treffer findet, wird `tgn_id` im `NormalizedRecord` gesetzt. Dieser ID-Zeiger wird in Phase 2 Step 2.5 genutzt.
 
 ---
 
@@ -191,6 +203,12 @@ Step 0   Overrides (manuell)
 Step 1   geo_cache
            Persistent SQLite — Ergebnis bereits berechnet
            ↓ miss
+           [Proximity-Anker bestimmen]
+           find_city(city, country_code, admin1_hint) → near=(lat,lon)
+           Falls kein PPL-Eintrag: find_precise(city) → near aus geogr. Feature
+           (z.B. "Pilatus" ist ein Berg [MTS], kein Ort — trotzdem als Anker nutzbar)
+           region → admin1_hint via region_to_admin1() für Disambiguierung
+           ↓
 Step 2   GEO DB precise (GeoNames)
            find_precise(location, country_code, near=city_coords)
            Typen: S (Spots), T (Terrain), H (Hydrography), V (Vegetation), L (Locality)
@@ -205,12 +223,16 @@ Step 2.5 TGN (Getty Thesaurus of Geographic Names)
            ↓ miss
 Step 3   Nominatim (OpenStreetMap)
            Nur wenn city ODER location bekannt (kein Aufruf ohne Anker)
-           Generische Titel (Dorfansicht, Panorama, Porträt…) → überspringen
+           Generische Titel ohne location_type → überspringen (→ Step 4)
            Erst: location allein; bei Miss: location + city + country
-           Précis-Treffer (Nominatim type ≠ city/suburb) → Score 4
+           Proximity-Check: präziser Treffer > 50 km von near → verwerfen, retry
+           Bei verweigertem Treffer und fehlgeschlagenem Retry → kein Ergebnis
+           (kein Fallback auf den abgelehnten Treffer)
+           Précis-Treffer → Score 4
            ↓ miss oder nicht präzis
 Step 4   GEO DB city (Stadtzentrum)
-           find_city(city, country_code)
+           find_city(city, country_code, admin1_hint)
+           admin1_hint aus region-Feld → disambiguiert gleichnamige Orte in verschiedenen Kantonen
            Typ P + ADM3/ADM4-Fallback
            → Score 3 (Fallback = True)
            ↓ miss
@@ -223,7 +245,11 @@ Step 5   Nominatim city-only (für Länder mit schlechter GEO-DB-Abdeckung)
 
 ### Generische Titel (Skip-Logik)
 
-Wenn `location` leer ist und der Titel ausschliesslich aus generischen Wörtern besteht, wird Nominatim übersprungen. Beispiele für generische Wörter: `ortsteilansicht`, `panorama`, `portrait`, `landschaft`, `dorfbild`, `ansicht`, `kirche`, `schulhaus`. Der Record landet direkt bei Step 4 (GEO DB city).
+Wenn `location` leer ist, kein `location_type` gesetzt wurde, und der Titel ausschliesslich aus generischen Wörtern besteht, wird Nominatim übersprungen. Beispiele: `ortsteilansicht`, `panorama`, `portrait`, `landschaft`, `dorfbild`. Der Record landet direkt bei Step 4. Ist `location_type` gesetzt (z.B. `"Kirche"`), wird Nominatim trotzdem aufgerufen — `location_type + city` ergibt einen brauchbaren Query.
+
+### Region-Disambiguierung
+
+`region` (aus Phase 1a) wird via `region_to_admin1()` in einen GeoNames `admin1`-Code aufgelöst. Dieser wird als Tiebreaker in `find_city()` verwendet — z.B. `city="Lohn"`, `region="Graubünden"` → `admin1="GR"` → der Lohn in GR wird dem Lohn in Schaffhausen vorgezogen. Funktioniert für alle Sprachen (Haiku gibt die Variante zurück wie im Originaltext, GeoNames hat die Alt-Namen mehrsprachig).
 
 ### Quality-Score
 
@@ -243,7 +269,7 @@ Alle Caches sind persistente SQLite-Dateien. Ergebnisse werden einmalig berechne
 
 | Cache-Tabelle | Inhalt | Datei |
 |---|---|---|
-| `norm_cache` | Phase 1a Ergebnisse (title/country/city/location) | `cache/locationer.sqlite` |
+| `norm_cache` | Phase 1a Ergebnisse (title/country/region/city/location) | `cache/locationer.sqlite` |
 | `meta_cache` | Phase 1b Ergebnisse (periode/urheber/technik) | `cache/locationer.sqlite` |
 | `geo_cache` | Phase 2 Ergebnisse (Koordinaten + Score) | `cache/locationer.sqlite` |
 | `nominatim_cache` | Nominatim-Antworten | `cache/locationer.sqlite` |
@@ -369,10 +395,20 @@ Voraussetzung: `TestFile.csv` muss Spalten `lat_true`/`lon_true` mit verifiziert
 
 | Datenmenge | Claude Haiku (Phase 1a+1b) | TGN | Nominatim | Total |
 |---|---|---|---|---|
-| 1'000 Zeilen | ~$0.35 | $0 | $0 | ~$0.35 |
-| 700'000 Zeilen | ~$280 | $0 | $0* | ~$280 |
+| 1'000 Zeilen | ~$0.10 | $0 | $0 | ~$0.10 |
+| 700'000 Zeilen | ~$70 | $0 | $0* | ~$70 |
+
+Haiku-Calls: ceil(N/20) pro Phase × 2 Phasen. Bei 1000 Zeilen ~100 Calls. Gemessene Kosten ZIN_1000: ~$0.10.
 
 *Nominatim public: 1 req/s → bei 700k unique Queries ~194h. Self-hosted empfohlen für grosse Volumen. Cache hält alle Ergebnisse — Wiederholungsläufe kosten nichts.
+
+### Output-Anzeige
+
+Pro Zeile: `[N:n]` zeigt kumulierte Nominatim-Calls. Am Ende:
+```
+Haiku calls (Phase 1a+1b): 2
+Nominatim calls:           14
+```
 
 ---
 

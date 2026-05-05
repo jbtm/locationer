@@ -284,8 +284,7 @@ class InputNormalizer:
             data = json.loads(m.group()) if m else [{}] * len(batch)
 
         records = []
-        for i, item in enumerate(data):
-            _, _, mapped = batch[i]
+        for item, (_, _, mapped) in zip(data, batch):
             ai_city    = str(item.get("city", "")).strip()
             input_city = str(mapped.get("city", "")).strip()
             # If AI city has no substring relation to the input value, the AI likely

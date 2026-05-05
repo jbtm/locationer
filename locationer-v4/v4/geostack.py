@@ -100,6 +100,14 @@ class GeoStack:
         city_row = self.geo_db.find_city(record.city, country_code, admin1_hint) if (self.geo_db and record.city) else None
         near = (city_row["lat"], city_row["lon"]) if city_row else None
 
+        # If city not found as populated place, try as geographic feature (mountain,
+        # lake, pass, etc.) — gives proximity anchor for cases like "Pilatus", "Rigi"
+        if not near and self.geo_db and record.city:
+            geo_feat = self.geo_db.find_precise(record.city, country_code)
+            if geo_feat:
+                near = (geo_feat["lat"], geo_feat["lon"])
+                dbg.append(f"city as geo feature: {geo_feat['name']} [{geo_feat['feature_code']}]")
+
         # ── Step 3: GEO DB precise ────────────────────────────────────────────
         if record.location and self.geo_db:
             row = self.geo_db.find_precise(record.location, country_code, near=near)
@@ -167,7 +175,7 @@ class GeoStack:
                     if dist > 50:
                         dbg.append(f"Nominatim precise hit {nm['name']!r} rejected ({dist:.0f} km from city)")
                         nm2 = self.nominatim.search(query)
-                        nm = nm2 if nm2 else nm  # fall back to original if retry also fails
+                        nm = nm2  # None if retry also fails — do not use the rejected hit
                 ext_result = {**nm, "source": "nominatim"}
                 dbg.append(f"Nominatim hit: {nm['name']} (precise={nm['precise']})")
             else:
