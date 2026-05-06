@@ -154,6 +154,18 @@ class GeoDatabase:
 
         return None
 
+    def _strip_city_disambig(self, name: str) -> str:
+        """Strip parenthetical and slash-based disambiguation from city names.
+
+        'Campo (Blenio)' → 'Campo'
+        'Breil/Brigels'  → 'Breil'
+        'Sta. Maria V. M.' → kept as-is (no stripping needed, dots handled by ascii_norm)
+        """
+        import re
+        name = re.sub(r'\s*\([^)]*\)', '', name).strip()
+        name = name.split('/')[0].strip()
+        return name
+
     def find_city(
         self, name: str, country_code: Optional[str] = None,
         admin1_hint: Optional[str] = None,
@@ -212,6 +224,28 @@ class GeoDatabase:
                     0 if r["feature_code"] == "ADM3" else 1,
                 ))
                 return adm[0]
+
+        # If still no candidates, retry with parenthetical/slash stripped:
+        # "Campo (Blenio)" → "Campo", "Breil/Brigels" → "Breil"
+        # Only retry with country filter to avoid false positives from world-wide search.
+        if not candidates and country_code:
+            stripped = self._strip_city_disambig(name)
+            if stripped and stripped != name:
+                norm_s = ascii_norm(stripped)
+                cc_rows = self.conn.execute(
+                    "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='P' AND country_code=? LIMIT 10",
+                    (norm_s, country_code),
+                ).fetchall()
+                for r in cc_rows:
+                    if r["geoname_id"] not in seen_ids:
+                        candidates.append(r)
+                if not candidates:
+                    adm_s = self.conn.execute(
+                        "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='A' AND feature_code IN ('ADM3','ADM4') AND country_code=? LIMIT 5",
+                        (norm_s, country_code),
+                    ).fetchall()
+                    if adm_s:
+                        return adm_s[0]
 
         if not candidates:
             return None

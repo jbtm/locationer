@@ -176,8 +176,11 @@ class GeoStack:
                         dbg.append(f"Nominatim precise hit {nm['name']!r} rejected ({dist:.0f} km from city)")
                         nm2 = self.nominatim.search(query)
                         nm = nm2  # None if retry also fails — do not use the rejected hit
-                ext_result = {**nm, "source": "nominatim"}
-                dbg.append(f"Nominatim hit: {nm['name']} (precise={nm['precise']})")
+                if nm:
+                    ext_result = {**nm, "source": "nominatim"}
+                    dbg.append(f"Nominatim hit: {nm['name']} (precise={nm['precise']})")
+                else:
+                    dbg.append("Nominatim: rejected (proximity), retry failed")
             else:
                 dbg.append("Nominatim: no result")
         else:
@@ -213,8 +216,10 @@ class GeoStack:
             dbg.append(f"city fallback via {ext_result['source']}: {ext_result['name']}")
             return self._store(cache_key, result, dbg)
 
-        # City not found anywhere — try Nominatim city-only as last resort
-        if record.city and not city_row and skip_ext is False:
+        # City not found anywhere — try Nominatim city-only as last resort.
+        # Always attempt this regardless of skip_ext: a city name is a concrete
+        # anchor, not an ambiguous location string.
+        if record.city and not city_row:
             city_q = " ".join(filter(None, [record.city, record.country]))
             nm_city = self.nominatim.search(city_q)
             if nm_city:

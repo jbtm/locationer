@@ -138,6 +138,39 @@ def _raw_text(row: dict) -> str:
     return " ".join(str(v) for v in row.values() if v is not None and str(v).strip())
 
 
+def _print_stats(output_rows: list[dict], unknown_loc_count: int) -> None:
+    n = len(output_rows)
+    if n == 0:
+        return
+    scores = {0: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    fb = 0
+    for row in output_rows:
+        s = row.get("Coord-Quality-Score", 0)
+        scores[s] = scores.get(s, 0) + 1
+        if row.get("Fallback"):
+            fb += 1
+
+    print(f"\n{'─'*70}")
+    print(f"SCORE-STATISTIK  (n={n})")
+    print(f"{'─'*70}")
+    labels = {
+        5: "Score 5 ●●●●● GEO DB / TGN präzis",
+        4: "Score 4 ●●●●○ Nominatim präzis",
+        3: "Score 3 ●●●○○ Stadtzentrum GEO DB",
+        2: "Score 2 ●●○○○ Stadtzentrum Nominatim",
+        0: "Score 0 ○○○○○ nicht gefunden",
+    }
+    for s in [5, 4, 3, 2, 0]:
+        cnt = scores.get(s, 0)
+        bar = "█" * int(cnt / n * 40)
+        print(f"  {labels[s]:38s} {cnt:5d}  {cnt/n*100:5.1f}%  {bar}")
+    print(f"  {'davon Ort unbekannt (explizit)':38s} {unknown_loc_count:5d}  {unknown_loc_count/n*100:5.1f}%")
+    found = n - scores.get(0, 0)
+    print(f"  {'─'*70}")
+    print(f"  {'Treffer total (Score > 0)':38s} {found:5d}  {found/n*100:5.1f}%")
+    print(f"  {'davon Fallback (Stadtzentrum)':38s} {fb:5d}  {fb/n*100:5.1f}%")
+
+
 def _process_chunk(
     chunk_rows: list[dict],
     chunk_start: int,
@@ -147,7 +180,7 @@ def _process_chunk(
     geo_db: "GeoDatabase",
     has_true_coords: bool,
     mode: str,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     normalized  = normalizer.normalize_batch(chunk_rows)
     metadata    = normalizer.extract_metadata_batch(chunk_rows)   # Phase 1b
 
@@ -164,11 +197,13 @@ def _process_chunk(
                     rec.country = correction["country"]
 
     output_rows = []
+    unknown_loc = 0
     for i, (rec, row, meta) in enumerate(zip(normalized, chunk_rows, metadata), chunk_start + 1):
         # Skip geocoding when input explicitly states location is unknown
         if _has_unknown_location(row):
             geo = GeoResult()
             geo.debug_info = ["skipped: location unknown in input"]
+            unknown_loc += 1
         else:
             geo = geostack.geocode(rec)
 
@@ -199,7 +234,7 @@ def _process_chunk(
         if has_true_coords:
             out["Deviation_km"] = round(dev_km, 2) if dev_km is not None else None
         output_rows.append(out)
-    return output_rows
+    return output_rows, unknown_loc
 
 
 def main():
@@ -208,8 +243,8 @@ def main():
     ap.add_argument("--mode", choices=["human", "debug"], default="human")
     ap.add_argument("--output", "-o", help="Output CSV (default: <input>_geo.csv)")
     ap.add_argument("--limit", type=int, help="Process only first N rows")
-    ap.add_argument("--chunk-size", type=int, default=None, dest="chunk_size",
-                    help="Process in chunks of N rows. Automatically resumes if output file exists.")
+    ap.add_argument("--chunk-size", type=int, default=20, dest="chunk_size",
+                    help="Process in chunks of N rows, auto-resume on restart (default: 20)")
     ap.add_argument("--geo-db", default=_GEO_DB_DEFAULT, dest="geo_db")
     args = ap.parse_args()
 
@@ -290,6 +325,8 @@ def main():
     # In resume mode the output file already exists → append without header
     first_chunk = skip_rows == 0  # append if resuming, write fresh if starting new
     written = 0
+    all_output_rows: list[dict] = []
+    total_unknown_loc = 0
     for chunk_start in range(0, total, chunk_size):
         chunk_df = df.iloc[chunk_start:chunk_start + chunk_size]
         chunk_rows = chunk_df.where(pd.notna(chunk_df), None).to_dict("records")
@@ -298,7 +335,7 @@ def main():
             end = min(chunk_start + chunk_size, total)
             print(f"\n── Chunk {chunk_start+1}–{end} / {total} ──────────────")
 
-        output_rows = _process_chunk(
+        output_rows, unknown_loc = _process_chunk(
             chunk_rows, chunk_start, total,
             normalizer, geostack, geo_db,
             has_true_coords, args.mode,
@@ -312,6 +349,8 @@ def main():
         )
         first_chunk = False
         written += len(output_rows)
+        all_output_rows.extend(output_rows)
+        total_unknown_loc += unknown_loc
 
         if args.chunk_size:
             print(f"   → {written}/{total} geschrieben  |  Nominatim bisher: {geostack.ext_count}")
@@ -320,6 +359,7 @@ def main():
     print(f"Output:          {out_path}")
     print(f"Haiku calls (Phase 1a+1b): {normalizer.haiku_count}")
     print(f"Nominatim calls:           {geostack.ext_count}")
+    _print_stats(all_output_rows, total_unknown_loc)
     print()
 
     cache.close()

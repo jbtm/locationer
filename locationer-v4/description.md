@@ -64,7 +64,7 @@ python -m v4 <input> [--mode human|debug] [--output PATH] [--limit N]
 | `--mode` | `human` | `human` = kompakte Tabellenausgabe, `debug` = vollständige Entscheidungspfade |
 | `--output` / `-o` | `<input>_geo.csv` | Pfad der Ausgabedatei |
 | `--limit N` | — | Nur die ersten N Zeilen verarbeiten |
-| `--chunk-size N` | — | Verarbeitung in Blöcken à N Zeilen; setzt bei Unterbrechung automatisch fort |
+| `--chunk-size N` | `20` | Verarbeitung in Blöcken à N Zeilen; setzt bei Unterbrechung automatisch fort |
 | `--geo-db PATH` | aus `.env` | Pfad zur GeoNames-SQLite (überschreibt `GEO_DB_PATH`) |
 
 ### Beispiele
@@ -276,9 +276,16 @@ Alle Caches sind persistente SQLite-Dateien. Ergebnisse werden einmalig berechne
 | TGN-Datenbank | 2.99 Mio. Orte aus Getty TGN | `cache/tgn.sqlite` |
 | Overrides | Manuelle Koordinaten + Normalisierungen | `explicit_list/explicit.sqlite` |
 
-### Resuming bei `--chunk-size`
+### Auto-Resume
 
-Wenn `--chunk-size N` gesetzt ist und die Ausgabedatei bereits existiert, zählt die Pipeline die vorhandenen Zeilen und setzt ab der nächsten unverarbeiteten Zeile fort. Kein Parameter nötig — einfach den gleichen Befehl erneut ausführen.
+`--chunk-size 20` ist der Default — d.h. jeder Lauf schreibt alle 20 Zeilen auf Disk und kann nach einem Crash oder Unterbruch nahtlos fortgesetzt werden. Einfach **denselben Befehl nochmals ausführen** — die Pipeline erkennt die bestehende Output-Datei und macht ab der nächsten unverarbeiteten Zeile weiter.
+
+```bash
+# Erster Lauf (oder Resume nach Unterbruch — gleicher Befehl):
+python -m v4 v4/ZIN_complete.csv
+```
+
+`--chunk-size 20` entspricht genau der internen Haiku-Batch-Grösse → keine Zusatzkosten gegenüber grösseren Chunk-Sizes. Maximaler Datenverlust bei Crash: 19 Zeilen.
 
 ---
 

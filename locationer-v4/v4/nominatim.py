@@ -97,8 +97,7 @@ class Nominatim:
             return None
 
         if not data:
-            self._cache_miss(key)
-            return None
+            return None  # don't cache misses — allows retry on next run
 
         r = data[0]
         lat = float(r["lat"])
@@ -123,9 +122,3 @@ class Nominatim:
             "place_type": place_type,
         }
 
-    def _cache_miss(self, key: str):
-        self.cache_conn.execute(
-            "INSERT OR IGNORE INTO nominatim_cache (key,lat,lon,display_name,place_type) VALUES (?,NULL,NULL,NULL,NULL)",
-            (key,),
-        )
-        self.cache_conn.commit()
