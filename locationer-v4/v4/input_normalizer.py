@@ -58,7 +58,7 @@ HTML entities are already decoded. Return ONLY the JSON array, no prose.\
 """
 
 
-def _map_columns(row: dict) -> dict[str, str]:
+def _map_columns(row: dict, extra_desc_cols: list[str] | None = None) -> dict[str, str]:
     low = {str(k).lower().strip(): v for k, v in row.items()}
     out = {f: "" for f in COLUMN_MAP}
     for field, aliases in COLUMN_MAP.items():
@@ -67,6 +67,17 @@ def _map_columns(row: dict) -> dict[str, str]:
                 v = low[alias]
                 out[field] = "" if v is None or (isinstance(v, float) and v != v) else str(v).strip()
                 break
+    # Append extra columns to description so Phase 1a Haiku sees them
+    if extra_desc_cols:
+        extras = []
+        for col in extra_desc_cols:
+            v = low.get(col.lower().strip())
+            v_str = "" if v is None or (isinstance(v, float) and v != v) else str(v).strip()
+            if v_str:
+                extras.append(v_str)
+        if extras:
+            sep = " | " if out["description"] else ""
+            out["description"] = out["description"] + sep + " | ".join(extras)
     return out
 
 
@@ -120,12 +131,14 @@ def _meta_raw_key(row: dict) -> str:
 class InputNormalizer:
     BATCH_SIZE = 20
 
-    def __init__(self, cache: Cache, debug: bool = False, tgn_db=None, geo_db=None):
+    def __init__(self, cache: Cache, debug: bool = False, tgn_db=None, geo_db=None,
+                 extra_desc_cols: list[str] | None = None):
         self.cache = cache
         self.debug = debug
-        self.tgn_db = tgn_db   # Optional TgnDatabase for Phase 1c
-        self.geo_db = geo_db   # Optional GeoDatabase for country_code resolution in Phase 1c
-        self.haiku_count = 0   # Total Haiku API calls (Phase 1a + 1b)
+        self.tgn_db = tgn_db
+        self.geo_db = geo_db
+        self.extra_desc_cols = extra_desc_cols or []  # extra cols merged into description
+        self.haiku_count = 0
         self._client: Optional[anthropic.Anthropic] = None
 
     @property
@@ -140,7 +153,7 @@ class InputNormalizer:
         pending: list[tuple[int, str, dict[str, str]]] = []
 
         for i, row in enumerate(rows):
-            mapped = {k: _clean(v) for k, v in _map_columns(row).items()}
+            mapped = {k: _clean(v) for k, v in _map_columns(row, self.extra_desc_cols).items()}
             rk = _raw_key(mapped)
             cached = self.cache.get_norm(rk)
             if cached:

@@ -1,6 +1,7 @@
 import argparse
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -18,6 +19,88 @@ from .input_normalizer import InputNormalizer
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
 from .tgn_db import TgnDatabase
+
+_QUALIFIERS = re.compile(
+    r'(?i)\b(circa|ca\.?|um|vor|nach|around|about|early|late|'
+    r'frühes?|spätes?|anfang|ende|mitte|mid|c\.)\b\s*'
+)
+
+def _fmt(year: str, month: str | None = None) -> str | None:
+    try:
+        y = int(year)
+        if not (1000 <= y <= 2100):
+            return None
+    except (ValueError, TypeError):
+        return None
+    if month:
+        try:
+            m = int(month)
+            if 1 <= m <= 12:
+                return f"{y:04d}:{m:02d}"
+        except (ValueError, TypeError):
+            pass
+    return f"{y:04d}"
+
+
+def parse_periode_pctm(text) -> str | None:
+    """Convert Haiku's Periode string to PCTM date format.
+
+    Rules:
+      single point : yyyy  or  yyyy:mm
+      range        : yyyy-yyyy  or  yyyy:mm-yyyy:mm  (and mixed)
+    Separator year/month = ':', separator start/end = '-'.
+    """
+    if not text or str(text).strip() in ('', 'nan', 'None'):
+        return None
+    s = _QUALIFIERS.sub('', str(text)).strip(' .,;')
+    if not s:
+        return None
+
+    # yyyy:mm-yyyy:mm  (already in target format — normalise)
+    m = re.match(r'^(\d{4}):(\d{1,2})\s*[-–]\s*(\d{4}):(\d{1,2})$', s)
+    if m:
+        a = _fmt(m.group(1), m.group(2))
+        b = _fmt(m.group(3), m.group(4))
+        return f"{a}-{b}" if a and b else None
+
+    # yyyy-mm-yyyy  or  yyyy-yyyy:mm  (mixed)
+    m = re.match(r'^(\d{4})[-/](\d{1,2})\s*[-–]\s*(\d{4})$', s)
+    if m and int(m.group(2)) <= 12:
+        a = _fmt(m.group(1), m.group(2))
+        b = _fmt(m.group(3))
+        return f"{a}-{b}" if a and b else None
+
+    m = re.match(r'^(\d{4})\s*[-–]\s*(\d{4})[-/](\d{1,2})$', s)
+    if m and int(m.group(3)) <= 12:
+        a = _fmt(m.group(1))
+        b = _fmt(m.group(2), m.group(3))
+        return f"{a}-{b}" if a and b else None
+
+    # yyyy-yyyy  (year range, second part may be 2 or 4 digits)
+    m = re.match(r'^(\d{4})\s*[-–]\s*(\d{2,4})$', s)
+    if m:
+        y1, y2 = int(m.group(1)), int(m.group(2))
+        if len(m.group(2)) == 2:
+            y2 = (y1 // 100) * 100 + y2   # 1914-18 → 1918
+        if y2 > 12:
+            a = _fmt(str(y1))
+            b = _fmt(str(y2))
+            return f"{a}-{b}" if a and b else None
+
+    # yyyy-mm  (single month — second part ≤ 12)
+    m = re.match(r'^(\d{4})[-/:](\d{1,2})$', s)
+    if m and int(m.group(2)) <= 12:
+        return _fmt(m.group(1), m.group(2))
+
+    # yyyy  (single year)
+    m = re.match(r'^(\d{4})$', s)
+    if m:
+        return _fmt(m.group(1))
+
+    return None
+
+
+_EXTRA_DESC_COLS = [c.strip() for c in os.getenv("EXTRA_DESC_COLS", "").split(",") if c.strip()]
 
 _GEO_DB_DEFAULT    = os.getenv("GEO_DB_PATH",   "/Volumes/LCMT_JBTM/LocationerGeo/locationer_geo_global.sqlite")
 _TGN_DB_DEFAULT    = os.getenv("TGN_DB_PATH",   "/Volumes/LCMT_JBTM/LocationerGeo/tgn.sqlite")
@@ -219,7 +302,7 @@ def _process_chunk(
         out = {
             "Title": rec.title,
             "Description": rec.description,
-            "Periode": meta.get("periode"),
+            "Periode": parse_periode_pctm(meta.get("periode")),
             "Urheber": meta.get("urheber"),
             "Technik": meta.get("technik"),
             "Country": rec.country,
@@ -310,7 +393,8 @@ def main():
     _ext_conn = _sqlite3.connect(_CACHE_DEFAULT)
     nominatim = Nominatim(_ext_conn, base_url=_NOMINATIM_URL, user_agent=_NOMINATIM_UA,
                           debug=(args.mode == "debug"))
-    normalizer = InputNormalizer(cache, debug=(args.mode == "debug"), tgn_db=tgn_db, geo_db=geo_db)
+    normalizer = InputNormalizer(cache, debug=(args.mode == "debug"), tgn_db=tgn_db, geo_db=geo_db,
+                                extra_desc_cols=_EXTRA_DESC_COLS)
     geostack   = GeoStack(geo_db, cache, nominatim,
                           debug=(args.mode == "debug"), overrides=overrides,
                           tgn_db=tgn_db)
@@ -341,7 +425,11 @@ def main():
             has_true_coords, args.mode,
         )
 
-        pd.DataFrame(output_rows).to_csv(
+        out_df = pd.concat(
+            [chunk_df.reset_index(drop=True), pd.DataFrame(output_rows)],
+            axis=1,
+        )
+        out_df.to_csv(
             out_path,
             mode="w" if first_chunk else "a",
             header=first_chunk,

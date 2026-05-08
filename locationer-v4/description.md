@@ -104,7 +104,21 @@ Country, Region, City, Lat, Lon,
 Coord-Quality-Score, Fallback, Ext-Calls[, Deviation_km]
 ```
 
+`Periode` — immer im PCTM-Format. Haiku extrahiert den Zeitraum aus Description + `EXTRA_DESC_COLS`, die Pipeline normalisiert ihn. Trennzeichen Jahr/Monat = `:`, Trennzeichen Start/Ende = `-`.
+
+| Input (Haiku-Rohwert) | Periode (PCTM) |
+|---|---|
+| `1908` | `1908` |
+| `circa 1890` | `1890` |
+| `1914-1918` | `1914-1918` |
+| `1910-03` | `1910:03` |
+| `1914-18` | `1914-1918` |
+| `1910-03-1920-05` | `1910:03-1920:05` |
+| nicht erwähnt | *(leer)* |
+
 `Deviation_km` erscheint nur wenn `lat_true`/`lon_true` im Input vorhanden sind.
+
+Konfiguration von `EXTRA_DESC_COLS` → siehe Abschnitt 9 (Konfiguration).
 
 ---
 
@@ -178,8 +192,10 @@ Robustheit: Wenn Haiku den Input-Stadtnamen kürzer zurückgibt als der Original
 
 ### Phase 1b — Metadaten
 
-Separater Haiku-Call für historische Metadaten:
-- `periode`: Zeitraum (z.B. `"1914-1918"`)
+Separater Haiku-Call für historische Metadaten. Haiku sieht dabei **alle Spalten des Inputfiles** (nicht nur title/description) — Felder wie `PeriodeRAW`, `Urheber_Roh` etc. werden automatisch einbezogen, ohne dass `EXTRA_DESC_COLS` nötig ist.
+
+Extrahierte Felder:
+- `periode`: Zeitraum als Rohwert (z.B. `"circa 1890"`, `"1914-1918"`) → wird von der Pipeline in PCTM-Format normalisiert
 - `urheber`: Fotograf / Künstler
 - `technik`: Fotografietechnik (z.B. `"Albumin"`, `"Photochrome"`, `"Cyanotype"`)
 
@@ -363,6 +379,8 @@ Ergebnis nach Import: ~2.99 Mio. Orte, davon ~2.97 Mio. mit Koordinaten, ~2.3 Mi
 
 ## 9. Konfiguration (.env)
 
+Die `.env`-Datei liegt im Projektverzeichnis neben `requirements.txt`. Hier werden alle Laufzeit-Parameter definiert — insbesondere auch die inputfile-spezifischen Anpassungen wie `EXTRA_DESC_COLS`.
+
 ```
 ANTHROPIC_API_KEY=sk-ant-...          # Pflicht
 GEO_DB_PATH=/Volumes/.../locationer_geo_global.sqlite  # Pflicht (4.5 GB)
@@ -371,9 +389,23 @@ CACHE_PATH=cache/locationer.sqlite    # Default
 OVERRIDES_PATH=explicit_list/explicit.sqlite  # Default
 NOMINATIM_URL=https://nominatim.openstreetmap.org  # Default
 NOMINATIM_USER_AGENT=locationer/4.0 (email)  # Pflicht für public Nominatim
+EXTRA_DESC_COLS=PeriodeRAW            # Optional, siehe unten
 ```
 
 Alle Pfade können relativ (zum Arbeitsverzeichnis) oder absolut angegeben werden.
+
+### EXTRA_DESC_COLS
+
+Kommagetrennte Liste von Inputspalten, deren Inhalt an die Description angehängt wird — ausschliesslich für **Phase 1a (Location-Extraktion)**.
+
+**Wann nötig:** Phase 1b (Metadaten: Periode, Urheber, Technik) schickt automatisch alle Spalten des Inputfiles an Haiku — ein Feld wie `PeriodeRAW` wird dort also immer gesehen, ohne dass `EXTRA_DESC_COLS` nötig ist. `EXTRA_DESC_COLS` ist nur relevant wenn eine zusätzliche Spalte auch die **Ortsbestimmung** beeinflussen soll (z.B. ein Feld "Aufnahmeort" das nicht in der Description steht).
+
+```
+# nur nötig wenn das Feld Ortsinformationen enthält
+EXTRA_DESC_COLS=Aufnahmeort
+```
+
+Bleibt leer wenn nicht gesetzt (Standardfall).
 
 ---
 
