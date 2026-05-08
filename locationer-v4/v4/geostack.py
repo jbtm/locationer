@@ -6,6 +6,58 @@ from .explicit_store import ExplicitStore
 from .geo_db import GeoDatabase
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
+
+# (min_lat, max_lat, min_lon, max_lon) — 1-degree tolerance included (~111 km)
+_COUNTRY_BBOX: dict[str, tuple[float, float, float, float]] = {
+    "CH": (44.8, 49.0,  4.9, 11.5),
+    "LI": (46.0, 48.3,  8.5, 10.7),
+    "AT": (45.3, 50.1,  8.5, 18.2),
+    "DE": (46.2, 56.2,  4.8, 16.0),
+    "FR": (40.3, 52.1, -6.2, 10.7),
+    "IT": (34.4, 48.2,  5.5, 19.9),
+    "ES": (26.6, 44.8,-19.2,  5.4),
+    "PT": (31.6, 43.2,-32.3, -5.1),
+    "GB": (48.8, 62.0, -9.7,  2.8),
+    "IE": (50.4, 56.0,-11.5, -4.5),
+    "NL": (49.7, 54.7,  2.3,  8.3),
+    "BE": (48.4, 52.6,  1.5,  7.5),
+    "LU": (48.4, 51.2,  4.7,  7.6),
+    "DK": (53.5, 58.8,  7.0, 16.3),
+    "SE": (54.3, 70.1, 10.0, 25.2),
+    "NO": (56.9, 72.2,  3.5, 32.2),
+    "FI": (58.7, 71.1, 19.5, 32.6),
+    "PL": (48.0, 56.0, 13.1, 25.2),
+    "CZ": (47.5, 52.1, 11.1, 19.9),
+    "SK": (46.7, 50.6, 15.8, 23.6),
+    "HU": (44.7, 49.6, 15.1, 23.9),
+    "RO": (42.6, 49.3, 19.2, 31.0),
+    "HR": (41.4, 47.6, 12.5, 20.5),
+    "SI": (44.4, 47.9, 12.4, 17.6),
+    "GR": (33.8, 43.0, 18.4, 29.3),
+    "TR": (34.8, 43.1, 24.7, 45.8),
+    "RU": (40.2, 83.0, 18.6, 180.0),
+    "US": (17.9, 72.4,-180.0,-65.9),
+    "CA": (40.7, 84.1,-142.0,-51.6),
+    "AU": (-44.7, -9.7, 112.2, 154.7),
+    "JP": (23.0, 46.6, 121.9, 154.0),
+    "CN": (17.2, 54.6,  72.5, 135.8),
+    "IN": ( 7.0, 38.1,  67.2,  98.4),
+    "ZA": (-35.9,-21.1,  15.5,  33.9),
+    "MX": (13.5, 33.7,-119.5,-85.7),
+    "BR": (-34.8,  6.3,-74.9,-33.8),
+    "AR": (-56.1,-20.8,-74.6,-52.6),
+    "MA": (27.6, 36.0, -14.0,  2.0),
+    "EG": (21.9, 32.0,  24.7, 37.0),
+    "ZZ": (-90.0, 90.0, -180.0, 180.0),  # unknown country — never reject
+}
+
+
+def _within_country_bbox(lat: float, lon: float, country_code: str) -> bool:
+    bbox = _COUNTRY_BBOX.get(country_code)
+    if bbox is None:
+        return True  # unknown country → don't reject
+    min_lat, max_lat, min_lon, max_lon = bbox
+    return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
 # Wikidata disabled: public SPARQL endpoint (Blazegraph) times out on CONTAINS()
 # queries because it lacks efficient full-text indexes → sequential scan over
 # millions of labels. Re-enable if a local Wikidata instance is available.
@@ -115,6 +167,8 @@ class GeoStack:
                 dist = _dist_km(row["lat"], row["lon"], near[0], near[1]) if near else 0
                 if near and dist > 50:
                     dbg.append(f"GEO DB precise {row['name']!r} rejected ({dist:.0f} km from city)")
+                elif country_code and not _within_country_bbox(row["lat"], row["lon"], country_code):
+                    dbg.append(f"GEO DB precise {row['name']!r} rejected (outside {country_code} bbox)")
                 else:
                     result = GeoResult(
                         lat=row["lat"], lon=row["lon"], quality_score=5,
@@ -129,13 +183,24 @@ class GeoStack:
         if record.tgn_id and self.tgn_db:
             tgn_row = self.tgn_db.get_by_id(record.tgn_id)
             if tgn_row and tgn_row["lat"] is not None:
-                result = GeoResult(
-                    lat=tgn_row["lat"], lon=tgn_row["lon"], quality_score=5,
-                    fallback=False, source="tgn",
-                    match_name=tgn_row["pref_name"] or record.tgn_name,
-                )
-                dbg.append(f"TGN: {tgn_row['pref_name']} [{tgn_row['place_type']}] id={record.tgn_id}")
-                return self._store(cache_key, result, dbg)
+                tgn_lat, tgn_lon = tgn_row["lat"], tgn_row["lon"]
+                tgn_ok = True
+                if near:
+                    dist = _dist_km(tgn_lat, tgn_lon, near[0], near[1])
+                    if dist > 50:
+                        dbg.append(f"TGN {tgn_row['pref_name']!r} rejected ({dist:.0f} km from city)")
+                        tgn_ok = False
+                if tgn_ok and country_code and not _within_country_bbox(tgn_lat, tgn_lon, country_code):
+                    dbg.append(f"TGN {tgn_row['pref_name']!r} rejected (outside {country_code} bbox)")
+                    tgn_ok = False
+                if tgn_ok:
+                    result = GeoResult(
+                        lat=tgn_lat, lon=tgn_lon, quality_score=5,
+                        fallback=False, source="tgn",
+                        match_name=tgn_row["pref_name"] or record.tgn_name,
+                    )
+                    dbg.append(f"TGN: {tgn_row['pref_name']} [{tgn_row['place_type']}] id={record.tgn_id}")
+                    return self._store(cache_key, result, dbg)
             else:
                 dbg.append(f"TGN miss for id={record.tgn_id}")
 
@@ -199,12 +264,15 @@ class GeoStack:
 
         # ── Step 5: GEO DB city fallback ──────────────────────────────────────
         if city_row:
-            result = GeoResult(
-                lat=city_row["lat"], lon=city_row["lon"], quality_score=3,
-                fallback=True, source="geo_db", match_name=city_row["name"],
-            )
-            dbg.append(f"city GEO DB: {city_row['name']} [{city_row['feature_code']}]")
-            return self._store(cache_key, result, dbg)
+            if country_code and not _within_country_bbox(city_row["lat"], city_row["lon"], country_code):
+                dbg.append(f"city fallback {city_row['name']!r} rejected (outside {country_code} bbox)")
+            else:
+                result = GeoResult(
+                    lat=city_row["lat"], lon=city_row["lon"], quality_score=3,
+                    fallback=True, source="geo_db", match_name=city_row["name"],
+                )
+                dbg.append(f"city GEO DB: {city_row['name']} [{city_row['feature_code']}]")
+                return self._store(cache_key, result, dbg)
 
         # ── Step 6: Nominatim city-only (non-EU countries not in GEO DB) ──────
         if ext_result and not ext_result.get("precise"):

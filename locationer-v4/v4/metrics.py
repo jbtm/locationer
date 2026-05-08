@@ -44,14 +44,17 @@ def run_pipeline():
 
 
 def measure(out: pd.DataFrame, google: int) -> dict:
+    with open(TESTFILE, "rb") as f:
+        first_line = f.readline().decode("utf-8", errors="replace")
+    sep = ";" if first_line.count(";") > first_line.count(",") else ","
     for enc in ("utf-8", "utf-8-sig", "latin-1", "mac_roman"):
         try:
-            src = pd.read_csv(TESTFILE, sep=";", quotechar='"', encoding=enc)
+            src = pd.read_csv(TESTFILE, sep=sep, quotechar='"', encoding=enc)
             break
         except (UnicodeDecodeError, Exception):
             continue
     else:
-        src = pd.read_csv(TESTFILE, sep=";", quotechar='"', encoding="latin-1", on_bad_lines="skip")
+        src = pd.read_csv(TESTFILE, sep=sep, quotechar='"', encoding="latin-1", on_bad_lines="skip")
     dists, no_ok, no_bad = [], 0, 0
     for i in range(len(src)):
         lt = _try_float(src.iloc[i].get("lat_true"))
