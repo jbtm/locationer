@@ -36,7 +36,7 @@ For each numbered entry, return one JSON object in an array:
 {
   "title":         "<max 60 chars, human-readable, same language as the input>",
   "country":       "<English country name, or empty string>",
-  "region":        "<canton, state, province or county — e.g. 'Graubünden', 'Lombardia', 'Bavaria' — empty string if not mentioned>",
+  "region":        "<canton, state, province or county — e.g. 'Graubünden', 'Lombardia', 'Bavaria' — infer from geographic context clues even when not explicitly named: a well-known mountain range, valley, lake or peak can strongly imply a region (e.g. 'Berninagruppe', 'Corvatsch', 'Piz Roseg', 'Engadin' → 'Graubünden'; 'Vierwaldstättersee', 'Rigi' → 'Luzern'; 'Jungfrau', 'Eiger' → 'Bern'; 'Mont Blanc' → 'Aosta Valley') — empty string only if genuinely unclear>",
   "city":          "<city or town name including disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen', or empty string>",
   "location":      "<most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht' – empty string if only a city, portrait, or generic scene>",
   "location_type": "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'Schulhaus', 'église', 'stazione' — null otherwise>"
@@ -81,8 +81,17 @@ def _map_columns(row: dict, extra_desc_cols: list[str] | None = None) -> dict[st
     return out
 
 
+def _clean_wikimedia(text: str) -> str:
+    """Strip Wikimedia multilingual markup: 'de|1=German text|1=English text' → 'German text English text'."""
+    if '|' not in text or '=' not in text:
+        return text
+    parts = text.split('|')
+    texts = [p.split('=', 1)[1].strip() for p in parts if '=' in p and p.split('=', 1)[1].strip()]
+    return ' '.join(texts) if texts else text
+
+
 def _clean(text: str) -> str:
-    return html.unescape(text or "").strip()
+    return _clean_wikimedia(html.unescape(text or "").strip())
 
 
 def _raw_key(mapped: dict[str, str]) -> str:

@@ -102,6 +102,17 @@ def parse_periode_pctm(text) -> str | None:
 
 _EXTRA_DESC_COLS = [c.strip() for c in os.getenv("EXTRA_DESC_COLS", "").split(",") if c.strip()]
 
+def _parse_collection_bbox(raw: str) -> "tuple[float,float,float,float] | None":
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if len(parts) == 4:
+        try:
+            return tuple(float(p) for p in parts)
+        except ValueError:
+            pass
+    return None
+
+_COLLECTION_BBOX = _parse_collection_bbox(os.getenv("COLLECTION_BBOX", ""))
+
 _GEO_DB_DEFAULT    = os.getenv("GEO_DB_PATH",   "/Volumes/LCMT_JBTM/LocationerGeo/locationer_geo_global.sqlite")
 _TGN_DB_DEFAULT    = os.getenv("TGN_DB_PATH",   "/Volumes/LCMT_JBTM/LocationerGeo/tgn.sqlite")
 _OVERRIDES_DEFAULT = os.getenv("OVERRIDES_PATH", "explicit_list/explicit.sqlite")
@@ -361,6 +372,31 @@ def main():
           + (f"  ·  chunk={args.chunk_size}" if args.chunk_size else "")
           + (f"  ·  ab Zeile {skip_rows + 1}" if skip_rows else ""))
 
+    # COLLECTION_BBOX check
+    global _COLLECTION_BBOX
+    if _COLLECTION_BBOX:
+        mn_lat, mx_lat, mn_lon, mx_lon = _COLLECTION_BBOX
+        print(f"\nCollection-Bbox: {mn_lat},{mx_lat},{mn_lon},{mx_lon}")
+        answer = input("  Passt das für diese Sammlung? [Y/n/neuer Wert] ").strip()
+        if answer.lower() == "n":
+            sys.exit(f"Abgebrochen — bitte COLLECTION_BBOX in {Path('.env').resolve()} anpassen.")
+        elif answer and answer.lower() not in ("y", "j", ""):
+            new_bbox = _parse_collection_bbox(answer)
+            if new_bbox:
+                _COLLECTION_BBOX = new_bbox
+                print(f"  → Bbox für diesen Lauf: {answer}")
+            else:
+                print("  → Ungültiges Format, bestehende Bbox wird verwendet.")
+    else:
+        print("\nCollection-Bbox: nicht gesetzt (global — kein Schwerpunktfilter)")
+        answer = input("  COLLECTION_BBOX setzen? [Enter=weiter / min_lat,max_lat,min_lon,max_lon] ").strip()
+        if answer:
+            new_bbox = _parse_collection_bbox(answer)
+            if new_bbox:
+                _COLLECTION_BBOX = new_bbox
+                print(f"  → Bbox für diesen Lauf: {answer}")
+    print()
+
     # GEO DB availability check
     geo_db_path = Path(args.geo_db)
     if not geo_db_path.exists():
@@ -397,7 +433,7 @@ def main():
                                 extra_desc_cols=_EXTRA_DESC_COLS)
     geostack   = GeoStack(geo_db, cache, nominatim,
                           debug=(args.mode == "debug"), overrides=overrides,
-                          tgn_db=tgn_db)
+                          tgn_db=tgn_db, collection_bbox=_COLLECTION_BBOX)
 
     chunk_size = args.chunk_size or total  # no chunking = one big chunk
 

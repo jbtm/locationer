@@ -58,6 +58,14 @@ def _within_country_bbox(lat: float, lon: float, country_code: str) -> bool:
         return True  # unknown country → don't reject
     min_lat, max_lat, min_lon, max_lon = bbox
     return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+
+
+def _within_collection_bbox(lat: float, lon: float,
+                             bbox: "tuple[float,float,float,float] | None") -> bool:
+    if bbox is None:
+        return True
+    min_lat, max_lat, min_lon, max_lon = bbox
+    return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
 # Wikidata disabled: public SPARQL endpoint (Blazegraph) times out on CONTAINS()
 # queries because it lacks efficient full-text indexes → sequential scan over
 # millions of labels. Re-enable if a local Wikidata instance is available.
@@ -110,13 +118,15 @@ class GeoStack:
         debug: bool = False,
         overrides: Optional[ExplicitStore] = None,
         tgn_db=None,
+        collection_bbox: "tuple[float,float,float,float] | None" = None,
     ):
-        self.geo_db    = geo_db
-        self.cache     = cache
-        self.nominatim = nominatim
-        self.tgn_db    = tgn_db
-        self.debug     = debug
-        self.overrides = overrides
+        self.geo_db         = geo_db
+        self.cache          = cache
+        self.nominatim      = nominatim
+        self.tgn_db         = tgn_db
+        self.debug          = debug
+        self.overrides      = overrides
+        self.collection_bbox = collection_bbox
         self.ext_count = 0  # Nominatim calls
 
     def geocode(self, record: NormalizedRecord) -> GeoResult:
@@ -134,8 +144,18 @@ class GeoStack:
 
         # ── Step 1: geo_cache ─────────────────────────────────────────────────
         cached = self.cache.get_geo(cache_key)
-        if cached:
-            cached.debug_info = [f"cache hit: {cached.match_name or '—'}"]
+        if cached and cached.lat is not None:
+            cc = self.geo_db.country_to_code(record.country) if self.geo_db else None
+            bbox_ok = (
+                (_within_country_bbox(cached.lat, cached.lon, cc) if cc else True)
+                and (cc or _within_collection_bbox(cached.lat, cached.lon, self.collection_bbox))
+            )
+            if bbox_ok:
+                cached.debug_info = [f"cache hit: {cached.match_name or '—'}"]
+                return cached
+            # stale cache entry — re-geocode with current checks
+        elif cached and cached.lat is None:
+            cached.debug_info = ["cache hit: —"]
             return cached
 
         country_code = self.geo_db.country_to_code(record.country) if self.geo_db else None
@@ -160,15 +180,25 @@ class GeoStack:
                 near = (geo_feat["lat"], geo_feat["lon"])
                 dbg.append(f"city as geo feature: {geo_feat['name']} [{geo_feat['feature_code']}]")
 
+        # Fallback anchor: admin1 centroid when city is unknown but region is known.
+        # Used for looser proximity validation of Nominatim/GeoNames results.
+        admin1_near = None
+        if near is None and admin1_hint and self.geo_db:
+            admin1_near = self.geo_db.find_admin1_centroid(country_code, admin1_hint)
+            if admin1_near:
+                dbg.append(f"admin1 centroid anchor: {admin1_near[0]:.3f}/{admin1_near[1]:.3f} ({admin1_hint})")
+
         # ── Step 3: GEO DB precise ────────────────────────────────────────────
         if record.location and self.geo_db:
-            row = self.geo_db.find_precise(record.location, country_code, near=near)
+            row = self.geo_db.find_precise(record.location, country_code, near=near, admin1_hint=admin1_hint)
             if row:
                 dist = _dist_km(row["lat"], row["lon"], near[0], near[1]) if near else 0
                 if near and dist > 50:
                     dbg.append(f"GEO DB precise {row['name']!r} rejected ({dist:.0f} km from city)")
                 elif country_code and not _within_country_bbox(row["lat"], row["lon"], country_code):
                     dbg.append(f"GEO DB precise {row['name']!r} rejected (outside {country_code} bbox)")
+                elif not country_code and not _within_collection_bbox(row["lat"], row["lon"], self.collection_bbox):
+                    dbg.append(f"GEO DB precise {row['name']!r} rejected (outside collection bbox)")
                 else:
                     result = GeoResult(
                         lat=row["lat"], lon=row["lon"], quality_score=5,
@@ -192,6 +222,9 @@ class GeoStack:
                         tgn_ok = False
                 if tgn_ok and country_code and not _within_country_bbox(tgn_lat, tgn_lon, country_code):
                     dbg.append(f"TGN {tgn_row['pref_name']!r} rejected (outside {country_code} bbox)")
+                    tgn_ok = False
+                if tgn_ok and not country_code and not _within_collection_bbox(tgn_lat, tgn_lon, self.collection_bbox):
+                    dbg.append(f"TGN {tgn_row['pref_name']!r} rejected (outside collection bbox)")
                     tgn_ok = False
                 if tgn_ok:
                     result = GeoResult(
@@ -219,9 +252,15 @@ class GeoStack:
             query = " ".join(filter(None, [record.location or record.title,
                                            record.city, record.country]))
 
-            # Try location alone first (better Nominatim recall),
-            # then with city+country for disambiguation
-            nm_query = record.location if record.location else query
+            # When no city anchor but region is known, include region in the query
+            # so Nominatim disambiguates geographically (e.g. "Flüelastrasse Graubünden"
+            # instead of "Flüelastrasse" which matches a street in Zürich).
+            if record.location and not near and record.region:
+                nm_query = " ".join(filter(None, [record.location, record.region, record.country]))
+            elif record.location:
+                nm_query = record.location
+            else:
+                nm_query = query
             dbg.append(f"Nominatim query: {nm_query!r}")
             nm = self.nominatim.search(nm_query)
             if nm is None and record.location and (record.city or record.country):
@@ -232,15 +271,18 @@ class GeoStack:
                 self.nominatim._last_error = ""
             if nm:
                 self.ext_count += 1
-                # Proximity check: if we have a city anchor and Nominatim's precise hit
-                # is too far away, it matched a homonym in a different place — retry
-                # with city+country to find the geographically correct result.
-                if nm.get("precise") and near and record.location:
-                    dist = _dist_km(nm["lat"], nm["lon"], near[0], near[1])
-                    if dist > 50:
-                        dbg.append(f"Nominatim precise hit {nm['name']!r} rejected ({dist:.0f} km from city)")
+                # Proximity check: result must be near the city (5 km) or admin1 centroid (100 km).
+                # 5 km for city anchor — named buildings/streets must be within the city,
+                # not in a different town that happens to share the same name.
+                effective_near = near or admin1_near
+                threshold = 5 if near else 100
+                if nm.get("precise") and effective_near and record.location:
+                    dist = _dist_km(nm["lat"], nm["lon"], effective_near[0], effective_near[1])
+                    if dist > threshold:
+                        anchor_label = "city" if near else f"{admin1_hint} centroid"
+                        dbg.append(f"Nominatim precise hit {nm['name']!r} rejected ({dist:.0f} km from {anchor_label})")
                         nm2 = self.nominatim.search(query)
-                        nm = nm2  # None if retry also fails — do not use the rejected hit
+                        nm = nm2
                 if nm:
                     ext_result = {**nm, "source": "nominatim"}
                     dbg.append(f"Nominatim hit: {nm['name']} (precise={nm['precise']})")
@@ -252,12 +294,19 @@ class GeoStack:
             dbg.append(f"external skip: generic title {record.title!r}")
 
         if ext_result and ext_result.get("precise"):
-            result = GeoResult(
-                lat=ext_result["lat"], lon=ext_result["lon"], quality_score=4,
-                fallback=False, source=ext_result["source"],
-                match_name=ext_result["name"],
-            )
-            return self._store(cache_key, result, dbg)
+            if country_code and not _within_country_bbox(ext_result["lat"], ext_result["lon"], country_code):
+                dbg.append(f"Nominatim precise {ext_result['name']!r} rejected (outside {country_code} bbox)")
+                ext_result = None
+            elif not country_code and not _within_collection_bbox(ext_result["lat"], ext_result["lon"], self.collection_bbox):
+                dbg.append(f"Nominatim precise {ext_result['name']!r} rejected (outside collection bbox)")
+                ext_result = None
+            else:
+                result = GeoResult(
+                    lat=ext_result["lat"], lon=ext_result["lon"], quality_score=4,
+                    fallback=False, source=ext_result["source"],
+                    match_name=ext_result["name"],
+                )
+                return self._store(cache_key, result, dbg)
 
         if ext_result:
             dbg.append(f"external not precise: {ext_result['name']}")
@@ -266,6 +315,8 @@ class GeoStack:
         if city_row:
             if country_code and not _within_country_bbox(city_row["lat"], city_row["lon"], country_code):
                 dbg.append(f"city fallback {city_row['name']!r} rejected (outside {country_code} bbox)")
+            elif not country_code and not _within_collection_bbox(city_row["lat"], city_row["lon"], self.collection_bbox):
+                dbg.append(f"city fallback {city_row['name']!r} rejected (outside collection bbox)")
             else:
                 result = GeoResult(
                     lat=city_row["lat"], lon=city_row["lon"], quality_score=3,

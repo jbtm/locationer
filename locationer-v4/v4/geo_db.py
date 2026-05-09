@@ -64,11 +64,18 @@ class GeoDatabase:
         ).fetchone()
         return row["country_code"] if row else None
 
+    def _count_alt_names(self, geoname_id: int) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) as c FROM geo_alt_name WHERE geoname_id=?", (geoname_id,)
+        ).fetchone()
+        return row["c"] if row else 0
+
     def find_precise(
         self,
         name: str,
         country_code: Optional[str] = None,
         near: Optional[tuple[float, float]] = None,
+        admin1_hint: Optional[str] = None,
     ) -> Optional[sqlite3.Row]:
         """
         Find a non-city/admin feature by name.
@@ -115,11 +122,15 @@ class GeoDatabase:
             return None
 
         if near:
-            # Pick the candidate closest to the known city centre
             candidates.sort(key=lambda r: _dist_km(r["lat"], r["lon"], near[0], near[1]))
         elif country_code:
-            # Prefer same-country result when no proximity hint
-            candidates.sort(key=lambda r: 0 if r["country_code"] == country_code else 1)
+            # No proximity anchor: rank by same-country, then admin1 match, then
+            # alt_name count (proxy for how well-known the place is).
+            candidates.sort(key=lambda r: (
+                0 if r["country_code"] == country_code else 1,
+                0 if (admin1_hint and r["admin1"] == admin1_hint) else 1,
+                -self._count_alt_names(r["geoname_id"]),
+            ))
 
         return candidates[0]
 
@@ -154,17 +165,17 @@ class GeoDatabase:
 
         return None
 
-    def _strip_city_disambig(self, name: str) -> str:
-        """Strip parenthetical and slash-based disambiguation from city names.
+    def _strip_city_disambig(self, name: str) -> list[str]:
+        """Return candidate simplifications of a city name.
 
-        'Campo (Blenio)' → 'Campo'
-        'Breil/Brigels'  → 'Breil'
-        'Sta. Maria V. M.' → kept as-is (no stripping needed, dots handled by ascii_norm)
+        'Campo (Blenio)' → ['Campo']
+        'Breil/Brigels'  → ['Breil', 'Brigels']   (try both parts)
+        'Bergün/Bravuogn' → ['Bergün', 'Bravuogn']
         """
         import re
         name = re.sub(r'\s*\([^)]*\)', '', name).strip()
-        name = name.split('/')[0].strip()
-        return name
+        parts = [p.strip() for p in name.split('/') if p.strip()]
+        return parts if len(parts) > 1 else parts[:1]
 
     def find_city(
         self, name: str, country_code: Optional[str] = None,
@@ -225,12 +236,14 @@ class GeoDatabase:
                 ))
                 return adm[0]
 
-        # If still no candidates, retry with parenthetical/slash stripped:
-        # "Campo (Blenio)" → "Campo", "Breil/Brigels" → "Breil"
+        # If still no candidates, retry with parenthetical/slash stripped.
+        # "Campo (Blenio)" → ["Campo"]
+        # "Bergün/Bravuogn" → ["Bergün", "Bravuogn"] — try both parts.
         # Only retry with country filter to avoid false positives from world-wide search.
         if not candidates and country_code:
-            stripped = self._strip_city_disambig(name)
-            if stripped and stripped != name:
+            for stripped in self._strip_city_disambig(name):
+                if stripped == name:
+                    continue
                 norm_s = ascii_norm(stripped)
                 cc_rows = self.conn.execute(
                     "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='P' AND country_code=? LIMIT 10",
@@ -240,12 +253,25 @@ class GeoDatabase:
                     if r["geoname_id"] not in seen_ids:
                         candidates.append(r)
                 if not candidates:
+                    # Also try as alt-name
+                    alt_rows = self.conn.execute(
+                        """SELECT g.* FROM geo_alt_name a
+                           JOIN geofeature g ON a.geoname_id = g.geoname_id
+                           WHERE a.alt_name_norm=? AND g.feature_class='P' AND g.country_code=? LIMIT 10""",
+                        (norm_s, country_code),
+                    ).fetchall()
+                    for r in alt_rows:
+                        if r["geoname_id"] not in seen_ids:
+                            candidates.append(r)
+                if not candidates:
                     adm_s = self.conn.execute(
                         "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='A' AND feature_code IN ('ADM3','ADM4') AND country_code=? LIMIT 5",
                         (norm_s, country_code),
                     ).fetchall()
                     if adm_s:
                         return adm_s[0]
+                if candidates:
+                    break  # found via first matching part
 
         if not candidates:
             return None
@@ -259,6 +285,14 @@ class GeoDatabase:
         ))
 
         return candidates[0]
+
+    def find_admin1_centroid(self, country_code: str, admin1_code: str) -> "tuple[float, float] | None":
+        """Return (lat, lon) of the ADM1 feature (canton/state/province) centroid."""
+        row = self.conn.execute(
+            "SELECT lat, lon FROM geofeature WHERE feature_code='ADM1' AND country_code=? AND admin1=? LIMIT 1",
+            (country_code, admin1_code),
+        ).fetchone()
+        return (row["lat"], row["lon"]) if row else None
 
     def find_region_name(self, country_code: str, admin1_code: str) -> str:
         """Return the ADM1 (state/province/canton) name for a country + admin1 code."""

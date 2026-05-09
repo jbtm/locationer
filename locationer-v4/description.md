@@ -98,11 +98,16 @@ Optionale Spalten `lat_true` / `lon_true` (oder `Breitengrad` / `Längengrad`): 
 
 ### Ausgabeformat
 
+Das Output-CSV enthält zuerst **alle Originalspalten des Inputs** (unverändert), dann die geocodierten Felder:
+
 ```
+<alle Input-Spalten> …
 Title, Description, Periode, Urheber, Technik,
 Country, Region, City, Lat, Lon,
 Coord-Quality-Score, Fallback, Ext-Calls[, Deviation_km]
 ```
+
+Wenn eine Input-Spalte denselben Namen wie eine Geocoding-Spalte trägt (z.B. `Title`), bleibt der Originalwert erhalten und der normalisierte Wert erscheint zusätzlich am Ende.
 
 `Periode` — immer im PCTM-Format. Haiku extrahiert den Zeitraum aus Description + `EXTRA_DESC_COLS`, die Pipeline normalisiert ihn. Trennzeichen Jahr/Monat = `:`, Trennzeichen Start/Ende = `-`.
 
@@ -171,7 +176,7 @@ Claude Haiku extrahiert aus Titel und Beschreibung:
 |---|---|
 | `title` | Bereinigter Titel (max. 60 Zeichen, Originalsprache) |
 | `country` | Landesname auf Englisch |
-| `region` | Kanton, Bundesland, Provinz (z.B. `"Graubünden"`, `"Bavaria"`) — leer wenn nicht erwähnt |
+| `region` | Kanton, Bundesland, Provinz — explizit genannt oder aus geographischem Kontext inferiert (z.B. `"Berninagruppe"` → `"Graubünden"`, `"Jungfrau"` → `"Bern"`) |
 | `city` | Stadt oder Ortschaft inkl. Disambiguierungssuffix (z.B. `"Bingen am Rhein"` statt `"Bingen"`) |
 | `location` | Spezifischer benannter Ort in Originalsprache (z.B. `"Schloss Vaduz"`, `"Montalin Schulhaus"`) — leer wenn nur Stadt, Portrait oder generische Szene |
 | `location_type` | Generischer Gebäudetyp im Originalwort wenn `location` leer (z.B. `"Bahnhof"`, `"Kirche"`) — kombiniert mit city zu Nominatim-Query |
@@ -225,30 +230,42 @@ Step 1   geo_cache
            (z.B. "Pilatus" ist ein Berg [MTS], kein Ort — trotzdem als Anker nutzbar)
            region → admin1_hint via region_to_admin1() für Disambiguierung
            ↓
+           [Proximity-Anker + Plausibilitätsprüfung]
+           find_city(city, country_code, admin1_hint) → near=(lat,lon)
+           Bei X/Y-Stadtnamen (z.B. "Bergün/Bravuogn") werden beide Teile versucht
+           Falls kein PPL-Eintrag: find_precise(city) → near aus geogr. Feature
+           Falls near=None aber region bekannt: admin1-Zentroid als Fallback-Anker
+           Alle Treffer geprüft gegen Länder-Bounding-Box (_COUNTRY_BBOX, ±1°)
+           Wenn country unbekannt: COLLECTION_BBOX als Fallback-Schranke
+           ↓
 Step 2   GEO DB precise (GeoNames)
-           find_precise(location, country_code, near=city_coords)
+           find_precise(location, country_code, near, admin1_hint)
            Typen: S (Spots), T (Terrain), H (Hydrography), V (Vegetation), L (Locality)
            50-km-Check: Treffer > 50 km vom Stadtzentrum → verwerfen
+           Bbox-Check: Treffer ausserhalb Landesgrenzen → verwerfen
+           Disambiguierung: admin1_hint + Alt-Name-Anzahl als Fame-Proxy
            → Score 5 (kein Fallback)
            ↓ miss
 Step 2.5 TGN (Getty Thesaurus of Geographic Names)
            Nur wenn Phase 1c eine tgn_id gesetzt hat
            get_by_id(tgn_id) → direkter ID-Lookup, kein Netzwerk
-           Stark für: Kulturerbe, historische Stätten, Berge, Kunstorte
+           50-km-Check + Bbox-Check wie Step 2
            → Score 5 (kein Fallback)
            ↓ miss
 Step 3   Nominatim (OpenStreetMap)
            Nur wenn city ODER location bekannt (kein Aufruf ohne Anker)
            Generische Titel ohne location_type → überspringen (→ Step 4)
-           Erst: location allein; bei Miss: location + city + country
-           Proximity-Check: präziser Treffer > 50 km von near → verwerfen, retry
-           Bei verweigertem Treffer und fehlgeschlagenem Retry → kein Ergebnis
-           (kein Fallback auf den abgelehnten Treffer)
+           Query: location + region + country wenn kein Stadtanker (verhindert
+             falsche Homonym-Treffer, z.B. "Flüelastrasse" in Zürich statt GR)
+           Proximity-Check:
+             - Stadtanker vorhanden: Treffer > 5 km → verwerfen, retry
+             - Nur admin1-Zentroid: Treffer > 100 km → verwerfen, retry
            Précis-Treffer → Score 4
            ↓ miss oder nicht präzis
 Step 4   GEO DB city (Stadtzentrum)
            find_city(city, country_code, admin1_hint)
-           admin1_hint aus region-Feld → disambiguiert gleichnamige Orte in verschiedenen Kantonen
+           Bbox-Check: Treffer ausserhalb Landesgrenzen → verwerfen
+           admin1_hint aus region-Feld → disambiguiert gleichnamige Orte
            Typ P + ADM3/ADM4-Fallback
            → Score 3 (Fallback = True)
            ↓ miss
@@ -265,7 +282,13 @@ Wenn `location` leer ist, kein `location_type` gesetzt wurde, und der Titel auss
 
 ### Region-Disambiguierung
 
-`region` (aus Phase 1a) wird via `region_to_admin1()` in einen GeoNames `admin1`-Code aufgelöst. Dieser wird als Tiebreaker in `find_city()` verwendet — z.B. `city="Lohn"`, `region="Graubünden"` → `admin1="GR"` → der Lohn in GR wird dem Lohn in Schaffhausen vorgezogen. Funktioniert für alle Sprachen (Haiku gibt die Variante zurück wie im Originaltext, GeoNames hat die Alt-Namen mehrsprachig).
+`region` (aus Phase 1a) wird via `region_to_admin1()` in einen GeoNames `admin1`-Code aufgelöst (`admin1_hint`). Dieser wird an drei Stellen verwendet:
+
+1. `find_city()` — Tiebreaker bei gleichnamigen Orten in verschiedenen Kantonen (z.B. `city="Lohn"`, `region="Graubünden"` → GR-Lohn statt SH-Lohn)
+2. `find_precise()` — bevorzugt Kandidaten im richtigen Kanton + mehr Alt-Namen (Fame-Proxy), z.B. Piz Nair GR statt Piz Nair UR
+3. Nominatim-Query — wenn kein Stadtanker, wird Region in den Query aufgenommen (z.B. `"Flüelastrasse Graubünden Switzerland"`)
+
+Haiku inferiert Region auch aus geographischem Kontext, wenn sie nicht explizit genannt ist (z.B. `"Berninagruppe"` oder `"Corvatsch"` → `"Graubünden"`).
 
 ### Quality-Score
 
@@ -390,6 +413,7 @@ OVERRIDES_PATH=explicit_list/explicit.sqlite  # Default
 NOMINATIM_URL=https://nominatim.openstreetmap.org  # Default
 NOMINATIM_USER_AGENT=locationer/4.0 (email)  # Pflicht für public Nominatim
 EXTRA_DESC_COLS=PeriodeRAW            # Optional, siehe unten
+COLLECTION_BBOX=43.0,62.0,-5.0,20.0  # Optional, siehe unten
 ```
 
 Alle Pfade können relativ (zum Arbeitsverzeichnis) oder absolut angegeben werden.
@@ -406,6 +430,26 @@ EXTRA_DESC_COLS=Aufnahmeort
 ```
 
 Bleibt leer wenn nicht gesetzt (Standardfall).
+
+### COLLECTION_BBOX
+
+Geografischer Sammlungsschwerpunkt als Bounding Box `min_lat,max_lat,min_lon,max_lon`. Greift **ausschliesslich wenn Haiku kein Land erkennt** (`country=""`). Verhindert, dass Ergebnisse ausserhalb des Schwerpunktgebiets akzeptiert werden — unabhängig davon welche Datenquelle den Treffer liefert (GeoNames, TGN, Nominatim, City-Fallback).
+
+Wenn `country` bekannt ist, übernehmen die länderspezifischen Bounding Boxes (_COUNTRY_BBOX) die Kontrolle — `COLLECTION_BBOX` ist dann inaktiv.
+
+| Sammlung | Empfohlener Wert | Abdeckung |
+|---|---|---|
+| ZIN (Schweiz + Nachbarländer) | `43.0,62.0,-5.0,20.0` | CH/DE/AT/FR/IT/NO + Westeuropa |
+| Nordafrika | `18.0,38.0,-5.0,40.0` | Maghreb + Ägypten |
+| Global | *(leer lassen)* | kein Filter |
+
+```
+# ZIN-Konfiguration:
+COLLECTION_BBOX=43.0,62.0,-5.0,20.0
+```
+
+Ablauf bei Treffer ausserhalb der Box (wenn country=""):
+→ Treffer verworfen → nächster GeoStack-Step → ggf. Score 0
 
 ---
 
@@ -451,7 +495,20 @@ Nominatim calls:           14
 
 ---
 
-## 12. Dateistruktur
+## 12. QA-Karte
+
+Nach jedem Lauf kann eine interaktive Leaflet-Karte generiert werden:
+
+```bash
+python -m v4.map v4/ZIN_complete_geo.csv
+# → öffnet ZIN_complete_geo_map.html im Browser
+```
+
+Marker sind nach Score eingefärbt (grün=5, hellgrün=4, orange=3, rot=2/0). Klick auf Marker zeigt Titel, City, Country, Score, Periode, Urheber, Δ-Abweichung und CSV-Zeilennummer.
+
+---
+
+## 13. Dateistruktur
 
 ```
 locationer-v4/
@@ -467,6 +524,7 @@ locationer-v4/
 │   ├── explicit_store.py    Override SQLite Interface
 │   ├── cache.py             Cache SQLite Interface
 │   ├── models.py            NormalizedRecord, GeoResult
+│   ├── map.py               QA-Karte (Leaflet via folium)
 │   ├── metrics.py           Testmetrik
 │   ├── wikidata.py          Wikidata (deaktiviert — Timeouts)
 │   ├── TestFile.csv         Testdaten (mit lat_true/lon_true)
