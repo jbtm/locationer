@@ -33,11 +33,32 @@ PPL_PRIORITY = {"PPLC": 0, "PPLA": 1, "PPLA2": 2, "PPLA3": 3, "PPLA4": 4, "PPL":
 
 
 def ascii_norm(s: str) -> str:
+    """Normalize to lowercase ASCII, stripping diacritics (NFD strip variant).
+    Matches GeoNames entries like Göschenen→'goschenen', Bürglen→'burglen'."""
     s = s.lower()
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    s = s.replace(".", "")  # match DB normalization: "St." → "st", "U.S.A." → "usa"
+    s = s.replace(".", "")
     return s
+
+
+def ascii_norm_de(s: str) -> str:
+    """German umlaut expansion variant: ö→oe, ü→ue, ä→ae, ß→ss.
+    Matches GeoNames entries like Zürich→'zuerich', Schlössli→'schloessli'."""
+    s = s.lower()
+    for src, tgt in (("ö", "oe"), ("ü", "ue"), ("ä", "ae"), ("ß", "ss")):
+        s = s.replace(src, tgt)
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.replace(".", "")
+    return s
+
+
+def _ascii_norm_variants(s: str) -> list[str]:
+    """Return both normalization variants, deduplicated."""
+    v1 = ascii_norm(s)
+    v2 = ascii_norm_de(s)
+    return [v1, v2] if v1 != v2 else [v1]
 
 
 def _dist_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -85,7 +106,7 @@ class GeoDatabase:
         disambiguates names that exist in multiple places (e.g. "Piazza San Pietro").
         Falls back to preferring the country match when no `near` is given.
         """
-        norm = ascii_norm(name)
+        norms = _ascii_norm_variants(name)
         candidates: list[sqlite3.Row] = []
         seen_ids: set[int] = set()
 
@@ -95,27 +116,22 @@ class GeoDatabase:
                     seen_ids.add(r["geoname_id"])
                     candidates.append(r)
 
-        # Widening to world-wide is only safe when we have a proximity anchor (`near`)
-        # to validate the expanded candidates.  Without it, a global search risks
-        # matching a homonym in a distant country (e.g. Italian city "Todi" for
-        # Swiss mountain "Tödi").  With `near` the proximity ranking picks the
-        # geographically correct result (e.g. Piazza di San Pietro in Vatican vs.
-        # other "Piazza San Pietro" entries in Italy).
         scope = [country_code, None] if (country_code and near is not None) else [country_code] if country_code else [None]
         for cc in scope:
             cc_clause = " AND country_code=?" if cc else ""
             cc_params = (cc,) if cc else ()
 
-            _add(self.conn.execute(
-                f"SELECT * FROM geofeature WHERE ascii_name_norm=?{cc_clause} LIMIT 20",
-                (norm,) + cc_params,
-            ).fetchall())
+            for norm in norms:
+                _add(self.conn.execute(
+                    f"SELECT * FROM geofeature WHERE ascii_name_norm=?{cc_clause} LIMIT 20",
+                    (norm,) + cc_params,
+                ).fetchall())
 
-            _add(self.conn.execute(
-                f"""SELECT g.* FROM geo_alt_name a
-                    JOIN geofeature g ON a.geoname_id = g.geoname_id
-                    WHERE a.alt_name_norm=?{cc_clause} LIMIT 20""",
-                (norm,) + cc_params,
+                _add(self.conn.execute(
+                    f"""SELECT g.* FROM geo_alt_name a
+                        JOIN geofeature g ON a.geoname_id = g.geoname_id
+                        WHERE a.alt_name_norm=?{cc_clause} LIMIT 20""",
+                    (norm,) + cc_params,
             ).fetchall())
 
         if not candidates:
@@ -188,7 +204,7 @@ class GeoDatabase:
         When admin1_hint is provided (canton/state code), it is used as a tiebreaker
         to disambiguate same-named places in different regions.
         """
-        norm = ascii_norm(name)
+        norms = _ascii_norm_variants(name)
         candidates: list[sqlite3.Row] = []
         seen_ids: set[int] = set()
 
@@ -202,74 +218,70 @@ class GeoDatabase:
             cc_clause = " AND country_code=?" if cc else ""
             cc_params = (cc,) if cc else ()
 
-            _add(self.conn.execute(
-                f"SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='P'{cc_clause} LIMIT 10",
-                (norm,) + cc_params,
-            ).fetchall())
+            for norm in norms:
+                _add(self.conn.execute(
+                    f"SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='P'{cc_clause} LIMIT 10",
+                    (norm,) + cc_params,
+                ).fetchall())
 
-            _add(self.conn.execute(
-                f"""SELECT g.* FROM geo_alt_name a
-                    JOIN geofeature g ON a.geoname_id = g.geoname_id
-                    WHERE a.alt_name_norm=? AND g.feature_class='P'{cc_clause} LIMIT 10""",
-                (norm,) + cc_params,
-            ).fetchall())
+                _add(self.conn.execute(
+                    f"""SELECT g.* FROM geo_alt_name a
+                        JOIN geofeature g ON a.geoname_id = g.geoname_id
+                        WHERE a.alt_name_norm=? AND g.feature_class='P'{cc_clause} LIMIT 10""",
+                    (norm,) + cc_params,
+                ).fetchall())
 
-        # ADM3/ADM4 fallback: municipalities stored as administrative (not populated)
-        # areas — e.g. small Swiss Gemeinden like Avers.
-        # Trigger when: no candidates at all, OR all candidates are from other countries.
+        # ADM3/ADM4 fallback
         same_country = [c for c in candidates if not country_code or c["country_code"] == country_code]
         if not same_country:
             cc_clause = " AND country_code=?" if country_code else ""
             cc_params = (country_code,) if country_code else ()
-            adm = self.conn.execute(
-                f"""SELECT * FROM geofeature
-                    WHERE ascii_name_norm=?
-                    AND feature_class='A'
-                    AND feature_code IN ('ADM3','ADM4'){cc_clause}
-                    LIMIT 5""",
-                (norm,) + cc_params,
-            ).fetchall()
-            if adm:
-                adm.sort(key=lambda r: (
-                    0 if (admin1_hint and r["admin1"] == admin1_hint) else 1,
-                    0 if r["feature_code"] == "ADM3" else 1,
-                ))
-                return adm[0]
+            for norm in norms:
+                adm = self.conn.execute(
+                    f"""SELECT * FROM geofeature
+                        WHERE ascii_name_norm=?
+                        AND feature_class='A'
+                        AND feature_code IN ('ADM3','ADM4'){cc_clause}
+                        LIMIT 5""",
+                    (norm,) + cc_params,
+                ).fetchall()
+                if adm:
+                    adm.sort(key=lambda r: (
+                        0 if (admin1_hint and r["admin1"] == admin1_hint) else 1,
+                        0 if r["feature_code"] == "ADM3" else 1,
+                    ))
+                    return adm[0]
 
         # If still no candidates, retry with parenthetical/slash stripped.
-        # "Campo (Blenio)" → ["Campo"]
-        # "Bergün/Bravuogn" → ["Bergün", "Bravuogn"] — try both parts.
-        # Only retry with country filter to avoid false positives from world-wide search.
         if not candidates and country_code:
             for stripped in self._strip_city_disambig(name):
                 if stripped == name:
                     continue
-                norm_s = ascii_norm(stripped)
-                cc_rows = self.conn.execute(
-                    "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='P' AND country_code=? LIMIT 10",
-                    (norm_s, country_code),
-                ).fetchall()
-                for r in cc_rows:
-                    if r["geoname_id"] not in seen_ids:
-                        candidates.append(r)
-                if not candidates:
-                    # Also try as alt-name
-                    alt_rows = self.conn.execute(
-                        """SELECT g.* FROM geo_alt_name a
-                           JOIN geofeature g ON a.geoname_id = g.geoname_id
-                           WHERE a.alt_name_norm=? AND g.feature_class='P' AND g.country_code=? LIMIT 10""",
+                for norm_s in _ascii_norm_variants(stripped):
+                    cc_rows = self.conn.execute(
+                        "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='P' AND country_code=? LIMIT 10",
                         (norm_s, country_code),
                     ).fetchall()
-                    for r in alt_rows:
+                    for r in cc_rows:
                         if r["geoname_id"] not in seen_ids:
                             candidates.append(r)
-                if not candidates:
-                    adm_s = self.conn.execute(
-                        "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='A' AND feature_code IN ('ADM3','ADM4') AND country_code=? LIMIT 5",
-                        (norm_s, country_code),
-                    ).fetchall()
-                    if adm_s:
-                        return adm_s[0]
+                    if not candidates:
+                        alt_rows = self.conn.execute(
+                            """SELECT g.* FROM geo_alt_name a
+                               JOIN geofeature g ON a.geoname_id = g.geoname_id
+                               WHERE a.alt_name_norm=? AND g.feature_class='P' AND g.country_code=? LIMIT 10""",
+                            (norm_s, country_code),
+                        ).fetchall()
+                        for r in alt_rows:
+                            if r["geoname_id"] not in seen_ids:
+                                candidates.append(r)
+                    if not candidates:
+                        adm_s = self.conn.execute(
+                            "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='A' AND feature_code IN ('ADM3','ADM4') AND country_code=? LIMIT 5",
+                            (norm_s, country_code),
+                        ).fetchall()
+                        if adm_s:
+                            return adm_s[0]
                 if candidates:
                     break  # found via first matching part
 

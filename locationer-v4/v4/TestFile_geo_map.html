@@ -17,7 +17,7 @@
             <meta name="viewport" content="width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <style>
-                #map_5d85523f0915bfe2d749f74906b432ff {
+                #map_1b4c12737d35a4c1f8f6cd661f54fbf2 {
                     position: relative;
                     width: 100.0%;
                     height: 100.0%;
@@ -66,18 +66,75 @@
       <span style="color:#E57373">●</span> 2 · Stadtzentrum Nominatim<br>
       <span style="color:red">●</span> 0 · nicht gefunden
     </div>
+    <style>
+.anno { margin-top:8px; border-top:1px solid #ddd; padding-top:6px; font-size:12px; }
+.anno label { cursor:pointer; }
+.anno input[type=text] {
+  width:100%; margin-top:5px; font-size:12px;
+  box-sizing:border-box; padding:3px 5px;
+  border:1px solid #ccc; border-radius:3px;
+}
+#qa-bar {
+  position:fixed; bottom:20px; right:20px; z-index:9999;
+  background:white; border:1px solid #aaa; border-radius:8px;
+  padding:12px 16px; box-shadow:2px 4px 12px rgba(0,0,0,.2);
+  font-size:13px; min-width:190px;
+}
+#qa-bar button {
+  margin-top:8px; width:100%; padding:6px 10px; cursor:pointer;
+  border:1px solid #888; border-radius:4px; background:#f5f5f5; font-size:12px;
+}
+#qa-bar button:hover { background:#e0e0e0; }
+</style>
     
+<div id="qa-bar">
+  <b>QA-Annotationen</b><br>
+  <span id="qa-n">0 annotiert</span>
+  <button onclick="downloadAnno()">⬇ CSV herunterladen</button>
+</div>
+<script>
+var A={}, MD={"2": {"t": "France, Annemasse, Grand Salève, Teilansicht", "la": 46.19439, "lo": 6.23775}, "4": {"t": "katholische kirche", "la": 46.70369, "lo": 9.4053}, "5": {"t": "Kläranlage", "la": 46.65139, "lo": 9.42731}, "8": {"t": "Schulhaus", "la": 46.73807, "lo": 9.45915}, "9": {"t": "Kirche", "la": 46.73791, "lo": 9.45495}, "10": {"t": "Kirche", "la": 46.70369, "lo": 9.4053}, "11": {"t": "Schloss Chillon", "la": 46.41424, "lo": 6.9276}, "12": {"t": "Montalinschulhaus", "la": 46.85582, "lo": 9.53569}, "13": {"t": "Kirchlein Mutten", "la": 46.67812, "lo": 9.49996}, "14": {"t": "Sprungschanze Vikersund", "la": 59.96838, "lo": 9.99107}, "15": {"t": "Thusis, Viamala-Schlucht", "la": 46.66204, "lo": 9.44825}, "16": {"t": "Bormio, Ortsteilansicht", "la": 46.46717, "lo": 10.37008}, "17": {"t": "Porträt, Kind, Onsernone", "la": 46.20304, "lo": 8.62333}, "18": {"t": "Kläranlage", "la": 46.87867, "lo": 9.52618}, "19": {"t": "Roma, Piazza San Pietro, Teilansicht", "la": 41.90224, "lo": 12.45736}, "20": {"t": "Maderno, Chiesa di Sant'Andrea", "la": 45.63589, "lo": 10.5996}, "21": {"t": "Bingen am Rhein, Ortsteilansicht", "la": 49.96675, "lo": 7.8992}, "22": {"t": "Passo dello Stelvio, Landschaft", "la": 46.56884, "lo": 10.52487}, "23": {"t": "Vaduz, Schloss Vaduz", "la": 47.13961, "lo": 9.52434}, "24": {"t": "Obere Surselva und Val Medel", "la": 46.63228, "lo": 8.82877}, "25": {"t": "Bärglistock, Panorama", "la": 46.61499, "lo": 8.14073}, "26": {"t": "Bolzano, Johanneskofel", "la": 46.49067, "lo": 11.33982}, "27": {"t": "France, Les Bossons, Ortsgesamtansicht", "la": 45.90482, "lo": 6.8454}, "28": {"t": "Italia, Milano, Arco della Pace, Gesamtansicht", "la": 45.47568, "lo": 9.17231}, "29": {"t": "Italia, Baveno, Ortsgesamtansicht", "la": 45.90818, "lo": 8.50033}, "30": {"t": "Göschenen, Bahnhof, Gotthardbahn", "la": 46.6658, "lo": 8.58871}, "31": {"t": "Porträt, Männliche Person, St. Moritz", "la": 46.49937, "lo": 9.84327}, "32": {"t": "Furth, Kapelle St. Karl Borromeo", "la": 46.70123, "lo": 9.18318}, "33": {"t": "Quaderschulhaus", "la": 46.8531, "lo": 9.53694}, "34": {"t": "Basel, Mittlere Brücke", "la": 47.56015, "lo": 7.58973}, "35": {"t": "Folketheateret in Oslo", "la": 59.91273, "lo": 10.74609}, "36": {"t": "Arvigo", "la": 46.29969, "lo": 9.11425}, "37": {"t": "Calancatal, Frau in Bündner Tracht", "la": 46.33003, "lo": 9.12146}, "38": {"t": "Avers, Cresta, Wasserfall", "la": 46.473, "lo": 9.5124}, "39": {"t": "Tödi, Panorama", "la": 46.81227, "lo": 8.91508}, "40": {"t": "Lugano, Piazza della Riforma", "la": 46.00363, "lo": 8.95164}, "41": {"t": "Dorfansicht", "la": 46.65139, "lo": 9.42731}, "42": {"t": "Bergün/Bravuogn, Grand Hotel, Gesamtaussenansicht", "la": 46.62934, "lo": 9.74762}, "43": {"t": "Piz Nair, Panorama", "la": 46.50636, "lo": 9.78734}, "44": {"t": "Flüelastrasse, Landschaft", "la": 46.81123, "lo": 9.84385}, "45": {"t": "Ramosch, Burgruine Tschanüff, Gesamtaussenansicht", "la": 46.83386, "lo": 10.3815}, "46": {"t": "Pignia bei Andeer, Ortsteilansicht", "la": 46.61428, "lo": 9.43807}};
+function setAnno(line,type,val){
+  if(!A[line])A[line]={fehler:false,wow:false,comment:''};
+  A[line][type]=val;
+  var a=A[line];
+  if(!a.fehler&&!a.wow&&!a.comment)delete A[line];
+  document.getElementById('qa-n').textContent=Object.keys(A).length+' annotiert';
+}
+function downloadAnno(){
+  if(!Object.keys(A).length){alert('Keine Annotationen vorhanden.');return;}
+  var reviewer=prompt('Dein Name:','')||'';
+  var rows=['csv_zeile,title,lat,lon,fehler,wow,kommentar,reviewer,timestamp'];
+  for(var l in A){
+    var a=A[l],d=MD[l]||{};
+    rows.push([l,'"'+(d.t||'').replace(/"/g,'""')+'"',
+      d.la||'',d.lo||'',
+      a.fehler?1:0,a.wow?1:0,
+      '"'+a.comment.replace(/"/g,'""')+'"',
+      '"'+reviewer.replace(/"/g,'""')+'"',
+      new Date().toISOString()].join(','));
+  }
+  var b=new Blob([rows.join('
+')],{type:'text/csv;charset=utf-8;'});
+  var u=URL.createObjectURL(b);
+  var el=document.createElement('a');
+  el.href=u;
+  el.download='annotations'+(reviewer?'_'+reviewer:'')+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(el);el.click();
+  document.body.removeChild(el);URL.revokeObjectURL(u);
+}
+</script>
     
-            <div class="folium-map" id="map_5d85523f0915bfe2d749f74906b432ff" ></div>
+            <div class="folium-map" id="map_1b4c12737d35a4c1f8f6cd661f54fbf2" ></div>
         
 </body>
 <script>
     
     
-            var map_5d85523f0915bfe2d749f74906b432ff = L.map(
-                "map_5d85523f0915bfe2d749f74906b432ff",
+            var map_1b4c12737d35a4c1f8f6cd661f54fbf2 = L.map(
+                "map_1b4c12737d35a4c1f8f6cd661f54fbf2",
                 {
-                    center: [47.15451172619047, 9.301714604761903],
+                    center: [47.148905042857145, 9.30650218095238],
                     crs: L.CRS.EPSG3857,
                     ...{
   "zoom": 7,
@@ -92,7 +149,7 @@
 
         
     
-            var tile_layer_ef1a58295e5b8e32f46e5d638c8bbf06 = L.tileLayer(
+            var tile_layer_c710b06119805c1887593abab092f745 = L.tileLayer(
                 "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                 {
   "minZoom": 0,
@@ -109,25 +166,25 @@
             );
         
     
-            tile_layer_ef1a58295e5b8e32f46e5d638c8bbf06.addTo(map_5d85523f0915bfe2d749f74906b432ff);
+            tile_layer_c710b06119805c1887593abab092f745.addTo(map_1b4c12737d35a4c1f8f6cd661f54fbf2);
         
     
-            var marker_cluster_cf91486dc7d0383d1615bee4273de972 = L.markerClusterGroup(
+            var marker_cluster_798a0db5723935bacda0a4f234412c66 = L.markerClusterGroup(
                 {
 }
             );
         
     
-            var marker_7413fd50b5b60f85b68d8b24a1fba44f = L.marker(
-                [46.1946098, 6.1177363],
+            var marker_479796ca3d1fd6093bbd90a41f098405 = L.marker(
+                [46.19439, 6.23775],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_ecc317db790d2c376572e613e020bbd6 = L.AwesomeMarkers.icon(
+            var icon_0669d89effdf38b9429e7ec6f70d9958 = L.AwesomeMarkers.icon(
                 {
-  "markerColor": "lightgreen",
+  "markerColor": "orange",
   "iconColor": "white",
   "icon": "info-sign",
   "prefix": "glyphicon",
@@ -136,24 +193,24 @@
             );
         
     
-        var popup_ab5fb6dcedab6f8a9cbaa0baf282f894 = L.popup({
-  "maxWidth": 320,
+        var popup_5a74a91c7df236d321b5b862a59b4d7e = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_968d19df1530ed5d8bfaa643833111bc = $(`<div id="html_968d19df1530ed5d8bfaa643833111bc" style="width: 100.0%; height: 100.0%;"><b>France, Annemasse, Grand Salève, Teilansicht</b><br>nan · France<br>●●●●○ Score 4 (Nominatim präzis)<br><small>Lat 46.19461  Lon 6.11774</small><br><small style='color:#888'>CSV-Zeile 2</small></div>`)[0];
-                popup_ab5fb6dcedab6f8a9cbaa0baf282f894.setContent(html_968d19df1530ed5d8bfaa643833111bc);
+                var html_8baccbbf22f764a5dc0e96cb21487e9f = $(`<div id="html_8baccbbf22f764a5dc0e96cb21487e9f" style="width: 100.0%; height: 100.0%;"><b>France, Annemasse, Grand Salève, Teilansicht</b><br>nan · France<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><small>Lat 46.19439  Lon 6.23775</small><br><small style='color:#888'>CSV-Zeile 2</small><br><a href="https://www.openstreetmap.org/?mlat=46.19439&mlon=6.23775&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf2" onchange="setAnno(2,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw2" onchange="setAnno(2,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt2" placeholder="Kommentar…" oninput="setAnno(2,'comment',this.value)"></div></div>`)[0];
+                popup_5a74a91c7df236d321b5b862a59b4d7e.setContent(html_8baccbbf22f764a5dc0e96cb21487e9f);
             
         
 
-        marker_7413fd50b5b60f85b68d8b24a1fba44f.bindPopup(popup_ab5fb6dcedab6f8a9cbaa0baf282f894)
+        marker_479796ca3d1fd6093bbd90a41f098405.bindPopup(popup_5a74a91c7df236d321b5b862a59b4d7e)
         ;
 
         
     
     
-            marker_7413fd50b5b60f85b68d8b24a1fba44f.bindTooltip(
+            marker_479796ca3d1fd6093bbd90a41f098405.bindTooltip(
                 `<div>
                      France, Annemasse, Grand Salève, Teilansicht
                  </div>`,
@@ -163,17 +220,17 @@
             );
         
     
-                marker_7413fd50b5b60f85b68d8b24a1fba44f.setIcon(icon_ecc317db790d2c376572e613e020bbd6);
+                marker_479796ca3d1fd6093bbd90a41f098405.setIcon(icon_0669d89effdf38b9429e7ec6f70d9958);
             
     
-            var marker_b07e2828ec641e137e6c8a22e2ed9acd = L.marker(
+            var marker_fc81dcbe8f28e44d9d957f4a220eecd3 = L.marker(
                 [46.7036883, 9.4053],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_82549247ce14b3b0d9e121c78cd05658 = L.AwesomeMarkers.icon(
+            var icon_912731d76c9cebc2311f675b1334c376 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -184,24 +241,24 @@
             );
         
     
-        var popup_65ad617f15b6f9f3db00ed97679b7e00 = L.popup({
-  "maxWidth": 320,
+        var popup_f59a277471639c0942f827bf0d39a56f = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_f62b2a35218218fad54746e7293e5761 = $(`<div id="html_f62b2a35218218fad54746e7293e5761" style="width: 100.0%; height: 100.0%;"><b>katholische kirche</b><br>Flerden · nan<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.70369  Lon 9.40530</small><br><small style='color:#888'>CSV-Zeile 4</small></div>`)[0];
-                popup_65ad617f15b6f9f3db00ed97679b7e00.setContent(html_f62b2a35218218fad54746e7293e5761);
+                var html_ed3c6c059a658b8c369127a882eda31c = $(`<div id="html_ed3c6c059a658b8c369127a882eda31c" style="width: 100.0%; height: 100.0%;"><b>katholische kirche</b><br>Flerden · nan<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.70369  Lon 9.40530</small><br><small style='color:#888'>CSV-Zeile 4</small><br><a href="https://www.openstreetmap.org/?mlat=46.7036883&mlon=9.4053&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf4" onchange="setAnno(4,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw4" onchange="setAnno(4,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt4" placeholder="Kommentar…" oninput="setAnno(4,'comment',this.value)"></div></div>`)[0];
+                popup_f59a277471639c0942f827bf0d39a56f.setContent(html_ed3c6c059a658b8c369127a882eda31c);
             
         
 
-        marker_b07e2828ec641e137e6c8a22e2ed9acd.bindPopup(popup_65ad617f15b6f9f3db00ed97679b7e00)
+        marker_fc81dcbe8f28e44d9d957f4a220eecd3.bindPopup(popup_f59a277471639c0942f827bf0d39a56f)
         ;
 
         
     
     
-            marker_b07e2828ec641e137e6c8a22e2ed9acd.bindTooltip(
+            marker_fc81dcbe8f28e44d9d957f4a220eecd3.bindTooltip(
                 `<div>
                      katholische kirche
                  </div>`,
@@ -211,17 +268,17 @@
             );
         
     
-                marker_b07e2828ec641e137e6c8a22e2ed9acd.setIcon(icon_82549247ce14b3b0d9e121c78cd05658);
+                marker_fc81dcbe8f28e44d9d957f4a220eecd3.setIcon(icon_912731d76c9cebc2311f675b1334c376);
             
     
-            var marker_09fadaf91f66dba931097cb03abe012c = L.marker(
+            var marker_12dd6f26f6015eff2be90ddd34c1e98f = L.marker(
                 [46.65139, 9.42731],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_c5219b02609c61f296e717c90c6307bc = L.AwesomeMarkers.icon(
+            var icon_5c8c340e216ae1e554f6b289efdb25cd = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -232,24 +289,24 @@
             );
         
     
-        var popup_d362fafabe3b6b103acabfa51633446b = L.popup({
-  "maxWidth": 320,
+        var popup_1284e85cd87e97c5508aa55cc9efe3b8 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_9442819c4a54659db6ed5d549b757b02 = $(`<div id="html_9442819c4a54659db6ed5d549b757b02" style="width: 100.0%; height: 100.0%;"><b>Kläranlage</b><br>Lohn · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><small>Lat 46.65139  Lon 9.42731</small><br><small style='color:#888'>CSV-Zeile 5</small></div>`)[0];
-                popup_d362fafabe3b6b103acabfa51633446b.setContent(html_9442819c4a54659db6ed5d549b757b02);
+                var html_c4dc85190a769aaada83e85205c6ece2 = $(`<div id="html_c4dc85190a769aaada83e85205c6ece2" style="width: 100.0%; height: 100.0%;"><b>Kläranlage</b><br>Lohn · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><small>Lat 46.65139  Lon 9.42731</small><br><small style='color:#888'>CSV-Zeile 5</small><br><a href="https://www.openstreetmap.org/?mlat=46.65139&mlon=9.42731&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf5" onchange="setAnno(5,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw5" onchange="setAnno(5,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt5" placeholder="Kommentar…" oninput="setAnno(5,'comment',this.value)"></div></div>`)[0];
+                popup_1284e85cd87e97c5508aa55cc9efe3b8.setContent(html_c4dc85190a769aaada83e85205c6ece2);
             
         
 
-        marker_09fadaf91f66dba931097cb03abe012c.bindPopup(popup_d362fafabe3b6b103acabfa51633446b)
+        marker_12dd6f26f6015eff2be90ddd34c1e98f.bindPopup(popup_1284e85cd87e97c5508aa55cc9efe3b8)
         ;
 
         
     
     
-            marker_09fadaf91f66dba931097cb03abe012c.bindTooltip(
+            marker_12dd6f26f6015eff2be90ddd34c1e98f.bindTooltip(
                 `<div>
                      Kläranlage
                  </div>`,
@@ -259,17 +316,17 @@
             );
         
     
-                marker_09fadaf91f66dba931097cb03abe012c.setIcon(icon_c5219b02609c61f296e717c90c6307bc);
+                marker_12dd6f26f6015eff2be90ddd34c1e98f.setIcon(icon_5c8c340e216ae1e554f6b289efdb25cd);
             
     
-            var marker_9dd31fe3f347cdfe05db2e97a4066546 = L.marker(
+            var marker_d6c7824d3cf0ce1f0ca40bed0e26c3e0 = L.marker(
                 [46.73807, 9.45915],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_585d9b7a20d4ad37d770dad59f1b728d = L.AwesomeMarkers.icon(
+            var icon_18daebeb2f2a0d29d46f4ca7d4303cb7 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -280,24 +337,24 @@
             );
         
     
-        var popup_ad30a0b6096c50c0b547503f4b53d1da = L.popup({
-  "maxWidth": 320,
+        var popup_d3498995559d489f7e38fa733d09e9a3 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_03a80f6aebfa14116079fb160e12eda8 = $(`<div id="html_03a80f6aebfa14116079fb160e12eda8" style="width: 100.0%; height: 100.0%;"><b>Schulhaus</b><br>nan · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.4 km</b></span><br><small>Lat 46.73807  Lon 9.45915</small><br><small style='color:#888'>CSV-Zeile 8</small></div>`)[0];
-                popup_ad30a0b6096c50c0b547503f4b53d1da.setContent(html_03a80f6aebfa14116079fb160e12eda8);
+                var html_0ba05e36f4cdc6deaf4485606c9b1b05 = $(`<div id="html_0ba05e36f4cdc6deaf4485606c9b1b05" style="width: 100.0%; height: 100.0%;"><b>Schulhaus</b><br>nan · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.4 km</b></span><br><small>Lat 46.73807  Lon 9.45915</small><br><small style='color:#888'>CSV-Zeile 8</small><br><a href="https://www.openstreetmap.org/?mlat=46.73807&mlon=9.45915&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf8" onchange="setAnno(8,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw8" onchange="setAnno(8,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt8" placeholder="Kommentar…" oninput="setAnno(8,'comment',this.value)"></div></div>`)[0];
+                popup_d3498995559d489f7e38fa733d09e9a3.setContent(html_0ba05e36f4cdc6deaf4485606c9b1b05);
             
         
 
-        marker_9dd31fe3f347cdfe05db2e97a4066546.bindPopup(popup_ad30a0b6096c50c0b547503f4b53d1da)
+        marker_d6c7824d3cf0ce1f0ca40bed0e26c3e0.bindPopup(popup_d3498995559d489f7e38fa733d09e9a3)
         ;
 
         
     
     
-            marker_9dd31fe3f347cdfe05db2e97a4066546.bindTooltip(
+            marker_d6c7824d3cf0ce1f0ca40bed0e26c3e0.bindTooltip(
                 `<div>
                      Schulhaus
                  </div>`,
@@ -307,17 +364,17 @@
             );
         
     
-                marker_9dd31fe3f347cdfe05db2e97a4066546.setIcon(icon_585d9b7a20d4ad37d770dad59f1b728d);
+                marker_d6c7824d3cf0ce1f0ca40bed0e26c3e0.setIcon(icon_18daebeb2f2a0d29d46f4ca7d4303cb7);
             
     
-            var marker_f704f4ad363bed5c311e4c2f8aa4ae53 = L.marker(
+            var marker_3c6999192e2c3761967e00e2236fdaa6 = L.marker(
                 [46.7379079, 9.4549469],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_ea1fc3eeda372c4622ae9faf584c25af = L.AwesomeMarkers.icon(
+            var icon_fb06c55c527e26535915aace54b1003a = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -328,24 +385,24 @@
             );
         
     
-        var popup_8868cda6014792fc6df007d62400ea47 = L.popup({
-  "maxWidth": 320,
+        var popup_0abbfa4c94e67bfb1229c2e3f92aa5c8 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_71f91e980da16329cdfa50fe5d9f3221 = $(`<div id="html_71f91e980da16329cdfa50fe5d9f3221" style="width: 100.0%; height: 100.0%;"><b>Kirche</b><br>Almens · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.73791  Lon 9.45495</small><br><small style='color:#888'>CSV-Zeile 9</small></div>`)[0];
-                popup_8868cda6014792fc6df007d62400ea47.setContent(html_71f91e980da16329cdfa50fe5d9f3221);
+                var html_c1a3668f2e69f560999978ab5ec7d894 = $(`<div id="html_c1a3668f2e69f560999978ab5ec7d894" style="width: 100.0%; height: 100.0%;"><b>Kirche</b><br>Almens · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.73791  Lon 9.45495</small><br><small style='color:#888'>CSV-Zeile 9</small><br><a href="https://www.openstreetmap.org/?mlat=46.7379079&mlon=9.4549469&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf9" onchange="setAnno(9,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw9" onchange="setAnno(9,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt9" placeholder="Kommentar…" oninput="setAnno(9,'comment',this.value)"></div></div>`)[0];
+                popup_0abbfa4c94e67bfb1229c2e3f92aa5c8.setContent(html_c1a3668f2e69f560999978ab5ec7d894);
             
         
 
-        marker_f704f4ad363bed5c311e4c2f8aa4ae53.bindPopup(popup_8868cda6014792fc6df007d62400ea47)
+        marker_3c6999192e2c3761967e00e2236fdaa6.bindPopup(popup_0abbfa4c94e67bfb1229c2e3f92aa5c8)
         ;
 
         
     
     
-            marker_f704f4ad363bed5c311e4c2f8aa4ae53.bindTooltip(
+            marker_3c6999192e2c3761967e00e2236fdaa6.bindTooltip(
                 `<div>
                      Kirche
                  </div>`,
@@ -355,17 +412,17 @@
             );
         
     
-                marker_f704f4ad363bed5c311e4c2f8aa4ae53.setIcon(icon_ea1fc3eeda372c4622ae9faf584c25af);
+                marker_3c6999192e2c3761967e00e2236fdaa6.setIcon(icon_fb06c55c527e26535915aace54b1003a);
             
     
-            var marker_ee89653fb67bd19eed31fff2de3245e8 = L.marker(
+            var marker_9297bf73c5f6034cce0f2df60d8fa3ae = L.marker(
                 [46.7036883, 9.4053],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_10ab76d746d5e7a38ba765da179475e5 = L.AwesomeMarkers.icon(
+            var icon_a7d7e8412dd32775e2c335357dba535c = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -376,24 +433,24 @@
             );
         
     
-        var popup_b4060c8f7da2b8a34bdf3de42ea0cf9e = L.popup({
-  "maxWidth": 320,
+        var popup_913da30ff5cde5a3621d21a9af6dba13 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_41b1a6fb832e7eb694e670c2ff752356 = $(`<div id="html_41b1a6fb832e7eb694e670c2ff752356" style="width: 100.0%; height: 100.0%;"><b>Kirche</b><br>nan · nan<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.70369  Lon 9.40530</small><br><small style='color:#888'>CSV-Zeile 10</small></div>`)[0];
-                popup_b4060c8f7da2b8a34bdf3de42ea0cf9e.setContent(html_41b1a6fb832e7eb694e670c2ff752356);
+                var html_908e3951fb065a400cc3008e62bcc538 = $(`<div id="html_908e3951fb065a400cc3008e62bcc538" style="width: 100.0%; height: 100.0%;"><b>Kirche</b><br>nan · nan<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.70369  Lon 9.40530</small><br><small style='color:#888'>CSV-Zeile 10</small><br><a href="https://www.openstreetmap.org/?mlat=46.7036883&mlon=9.4053&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf10" onchange="setAnno(10,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw10" onchange="setAnno(10,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt10" placeholder="Kommentar…" oninput="setAnno(10,'comment',this.value)"></div></div>`)[0];
+                popup_913da30ff5cde5a3621d21a9af6dba13.setContent(html_908e3951fb065a400cc3008e62bcc538);
             
         
 
-        marker_ee89653fb67bd19eed31fff2de3245e8.bindPopup(popup_b4060c8f7da2b8a34bdf3de42ea0cf9e)
+        marker_9297bf73c5f6034cce0f2df60d8fa3ae.bindPopup(popup_913da30ff5cde5a3621d21a9af6dba13)
         ;
 
         
     
     
-            marker_ee89653fb67bd19eed31fff2de3245e8.bindTooltip(
+            marker_9297bf73c5f6034cce0f2df60d8fa3ae.bindTooltip(
                 `<div>
                      Kirche
                  </div>`,
@@ -403,17 +460,17 @@
             );
         
     
-                marker_ee89653fb67bd19eed31fff2de3245e8.setIcon(icon_10ab76d746d5e7a38ba765da179475e5);
+                marker_9297bf73c5f6034cce0f2df60d8fa3ae.setIcon(icon_a7d7e8412dd32775e2c335357dba535c);
             
     
-            var marker_19311ebbca40205a39e1ba703316333c = L.marker(
+            var marker_7dae6f9509dfd748d13d59976f04e076 = L.marker(
                 [46.4142394, 6.9276018],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_055c2dc446707eb92f9966909db3f16e = L.AwesomeMarkers.icon(
+            var icon_eaa7653f598ef44a27b7e457dcbbeb63 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -424,24 +481,24 @@
             );
         
     
-        var popup_529ae86ae61cbdcb40c8e6955a980f6c = L.popup({
-  "maxWidth": 320,
+        var popup_c6cc118561333638169003b56f3ccbc8 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_2d11044ae7c6dcf42ff00346acd8d3cb = $(`<div id="html_2d11044ae7c6dcf42ff00346acd8d3cb" style="width: 100.0%; height: 100.0%;"><b>Schloss Chillon</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.41424  Lon 6.92760</small><br><small style='color:#888'>CSV-Zeile 11</small></div>`)[0];
-                popup_529ae86ae61cbdcb40c8e6955a980f6c.setContent(html_2d11044ae7c6dcf42ff00346acd8d3cb);
+                var html_0a525d534e29f393aabf1695b6da5924 = $(`<div id="html_0a525d534e29f393aabf1695b6da5924" style="width: 100.0%; height: 100.0%;"><b>Schloss Chillon</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.41424  Lon 6.92760</small><br><small style='color:#888'>CSV-Zeile 11</small><br><a href="https://www.openstreetmap.org/?mlat=46.4142394&mlon=6.9276018&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf11" onchange="setAnno(11,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw11" onchange="setAnno(11,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt11" placeholder="Kommentar…" oninput="setAnno(11,'comment',this.value)"></div></div>`)[0];
+                popup_c6cc118561333638169003b56f3ccbc8.setContent(html_0a525d534e29f393aabf1695b6da5924);
             
         
 
-        marker_19311ebbca40205a39e1ba703316333c.bindPopup(popup_529ae86ae61cbdcb40c8e6955a980f6c)
+        marker_7dae6f9509dfd748d13d59976f04e076.bindPopup(popup_c6cc118561333638169003b56f3ccbc8)
         ;
 
         
     
     
-            marker_19311ebbca40205a39e1ba703316333c.bindTooltip(
+            marker_7dae6f9509dfd748d13d59976f04e076.bindTooltip(
                 `<div>
                      Schloss Chillon
                  </div>`,
@@ -451,17 +508,17 @@
             );
         
     
-                marker_19311ebbca40205a39e1ba703316333c.setIcon(icon_055c2dc446707eb92f9966909db3f16e);
+                marker_7dae6f9509dfd748d13d59976f04e076.setIcon(icon_eaa7653f598ef44a27b7e457dcbbeb63);
             
     
-            var marker_c8f44c55a716d54c39186d3c917d50f9 = L.marker(
+            var marker_262dd06fe2e77fba1d464410de0c3a2a = L.marker(
                 [46.8558185, 9.5356898],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_d52b725c289e99827aea03428d178627 = L.AwesomeMarkers.icon(
+            var icon_44b8877975fde695acb066eaf17f64ae = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -472,24 +529,24 @@
             );
         
     
-        var popup_98bd762f00a22b727880cbb4efb9d135 = L.popup({
-  "maxWidth": 320,
+        var popup_5af330240365be8e3d3e08ff7f51c28a = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_3bb9d2e0d8caec400d4f68b78a4777c4 = $(`<div id="html_3bb9d2e0d8caec400d4f68b78a4777c4" style="width: 100.0%; height: 100.0%;"><b>Montalinschulhaus</b><br>Chur · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.85582  Lon 9.53569</small><br><small style='color:#888'>CSV-Zeile 12</small></div>`)[0];
-                popup_98bd762f00a22b727880cbb4efb9d135.setContent(html_3bb9d2e0d8caec400d4f68b78a4777c4);
+                var html_4d64c80e2ebad7dd85bb81d77823a2df = $(`<div id="html_4d64c80e2ebad7dd85bb81d77823a2df" style="width: 100.0%; height: 100.0%;"><b>Montalinschulhaus</b><br>Chur · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.85582  Lon 9.53569</small><br><small style='color:#888'>CSV-Zeile 12</small><br><a href="https://www.openstreetmap.org/?mlat=46.8558185&mlon=9.5356898&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf12" onchange="setAnno(12,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw12" onchange="setAnno(12,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt12" placeholder="Kommentar…" oninput="setAnno(12,'comment',this.value)"></div></div>`)[0];
+                popup_5af330240365be8e3d3e08ff7f51c28a.setContent(html_4d64c80e2ebad7dd85bb81d77823a2df);
             
         
 
-        marker_c8f44c55a716d54c39186d3c917d50f9.bindPopup(popup_98bd762f00a22b727880cbb4efb9d135)
+        marker_262dd06fe2e77fba1d464410de0c3a2a.bindPopup(popup_5af330240365be8e3d3e08ff7f51c28a)
         ;
 
         
     
     
-            marker_c8f44c55a716d54c39186d3c917d50f9.bindTooltip(
+            marker_262dd06fe2e77fba1d464410de0c3a2a.bindTooltip(
                 `<div>
                      Montalinschulhaus
                  </div>`,
@@ -499,17 +556,17 @@
             );
         
     
-                marker_c8f44c55a716d54c39186d3c917d50f9.setIcon(icon_d52b725c289e99827aea03428d178627);
+                marker_262dd06fe2e77fba1d464410de0c3a2a.setIcon(icon_44b8877975fde695acb066eaf17f64ae);
             
     
-            var marker_b5cf296a3ef8639cf2585db685abf0b2 = L.marker(
+            var marker_adbf40fe38b218f1ef4143242f92c663 = L.marker(
                 [46.67812, 9.49996],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_25904759d0d5e1707594eb130f5de3ba = L.AwesomeMarkers.icon(
+            var icon_2c40a709366b64051266f274a479cb61 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -520,24 +577,24 @@
             );
         
     
-        var popup_6c8b8b5fbf948416496b9ef2c3b6e296 = L.popup({
-  "maxWidth": 320,
+        var popup_b3dec7c6595acbbe67ac664c4f9bb01a = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_95c59f7d2dddd3bb487af429a8fd8772 = $(`<div id="html_95c59f7d2dddd3bb487af429a8fd8772" style="width: 100.0%; height: 100.0%;"><b>Kirchlein Mutten</b><br>Mutten · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:orange"><b>Δ 1.4 km</b></span><br><small>Lat 46.67812  Lon 9.49996</small><br><small style='color:#888'>CSV-Zeile 13</small></div>`)[0];
-                popup_6c8b8b5fbf948416496b9ef2c3b6e296.setContent(html_95c59f7d2dddd3bb487af429a8fd8772);
+                var html_8eb84e648d47d0fafb70b5313dc59170 = $(`<div id="html_8eb84e648d47d0fafb70b5313dc59170" style="width: 100.0%; height: 100.0%;"><b>Kirchlein Mutten</b><br>Mutten · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:orange"><b>Δ 1.4 km</b></span><br><small>Lat 46.67812  Lon 9.49996</small><br><small style='color:#888'>CSV-Zeile 13</small><br><a href="https://www.openstreetmap.org/?mlat=46.67812&mlon=9.49996&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf13" onchange="setAnno(13,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw13" onchange="setAnno(13,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt13" placeholder="Kommentar…" oninput="setAnno(13,'comment',this.value)"></div></div>`)[0];
+                popup_b3dec7c6595acbbe67ac664c4f9bb01a.setContent(html_8eb84e648d47d0fafb70b5313dc59170);
             
         
 
-        marker_b5cf296a3ef8639cf2585db685abf0b2.bindPopup(popup_6c8b8b5fbf948416496b9ef2c3b6e296)
+        marker_adbf40fe38b218f1ef4143242f92c663.bindPopup(popup_b3dec7c6595acbbe67ac664c4f9bb01a)
         ;
 
         
     
     
-            marker_b5cf296a3ef8639cf2585db685abf0b2.bindTooltip(
+            marker_adbf40fe38b218f1ef4143242f92c663.bindTooltip(
                 `<div>
                      Kirchlein Mutten
                  </div>`,
@@ -547,17 +604,17 @@
             );
         
     
-                marker_b5cf296a3ef8639cf2585db685abf0b2.setIcon(icon_25904759d0d5e1707594eb130f5de3ba);
+                marker_adbf40fe38b218f1ef4143242f92c663.setIcon(icon_2c40a709366b64051266f274a479cb61);
             
     
-            var marker_9d93521d7377e6bb97683856d57cef51 = L.marker(
+            var marker_845a38a301ed715d28eb5412844148b6 = L.marker(
                 [59.96838, 9.99107],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_7629ca6923427cff119a926a9c8a072e = L.AwesomeMarkers.icon(
+            var icon_d072d5e814c73d45f98fb04deb5b3ef2 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -568,24 +625,24 @@
             );
         
     
-        var popup_6bfe83eefe46270af1a9d747e6333ed1 = L.popup({
-  "maxWidth": 320,
+        var popup_3f428e22c9889a73de551b48b574feba = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_92035f782b78413bb02307617aea5340 = $(`<div id="html_92035f782b78413bb02307617aea5340" style="width: 100.0%; height: 100.0%;"><b>Sprungschanze Vikersund</b><br>Vikersund · Norway<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:orange"><b>Δ 3.5 km</b></span><br><small>Lat 59.96838  Lon 9.99107</small><br><small style='color:#888'>CSV-Zeile 14</small></div>`)[0];
-                popup_6bfe83eefe46270af1a9d747e6333ed1.setContent(html_92035f782b78413bb02307617aea5340);
+                var html_ef0b828292439b4bbe8a8f01008a7a1f = $(`<div id="html_ef0b828292439b4bbe8a8f01008a7a1f" style="width: 100.0%; height: 100.0%;"><b>Sprungschanze Vikersund</b><br>Vikersund · Norway<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:orange"><b>Δ 3.5 km</b></span><br><small>Lat 59.96838  Lon 9.99107</small><br><small style='color:#888'>CSV-Zeile 14</small><br><a href="https://www.openstreetmap.org/?mlat=59.96838&mlon=9.99107&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf14" onchange="setAnno(14,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw14" onchange="setAnno(14,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt14" placeholder="Kommentar…" oninput="setAnno(14,'comment',this.value)"></div></div>`)[0];
+                popup_3f428e22c9889a73de551b48b574feba.setContent(html_ef0b828292439b4bbe8a8f01008a7a1f);
             
         
 
-        marker_9d93521d7377e6bb97683856d57cef51.bindPopup(popup_6bfe83eefe46270af1a9d747e6333ed1)
+        marker_845a38a301ed715d28eb5412844148b6.bindPopup(popup_3f428e22c9889a73de551b48b574feba)
         ;
 
         
     
     
-            marker_9d93521d7377e6bb97683856d57cef51.bindTooltip(
+            marker_845a38a301ed715d28eb5412844148b6.bindTooltip(
                 `<div>
                      Sprungschanze Vikersund
                  </div>`,
@@ -595,17 +652,17 @@
             );
         
     
-                marker_9d93521d7377e6bb97683856d57cef51.setIcon(icon_7629ca6923427cff119a926a9c8a072e);
+                marker_845a38a301ed715d28eb5412844148b6.setIcon(icon_d072d5e814c73d45f98fb04deb5b3ef2);
             
     
-            var marker_d613b11735d6bc0fe9e5248fc5dd4cc8 = L.marker(
+            var marker_eeb5dca7567a6384c558fa177c3969fa = L.marker(
                 [46.662043, 9.448247],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_0dec4ced3837515c9c856312dca4a713 = L.AwesomeMarkers.icon(
+            var icon_9d5c12b9040d9687c8175c9ea3aaef13 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -616,24 +673,24 @@
             );
         
     
-        var popup_05c1e6b5f6f05150c5fee6da417bf3fe = L.popup({
-  "maxWidth": 320,
+        var popup_acd95ca17a3c6ffa75a1aee88f4d6ad6 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_5c62e62c2d2747dd91538193f5190792 = $(`<div id="html_5c62e62c2d2747dd91538193f5190792" style="width: 100.0%; height: 100.0%;"><b>Thusis, Viamala-Schlucht</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.2 km</b></span><br><small>Lat 46.66204  Lon 9.44825</small><br><small style='color:#888'>CSV-Zeile 15</small></div>`)[0];
-                popup_05c1e6b5f6f05150c5fee6da417bf3fe.setContent(html_5c62e62c2d2747dd91538193f5190792);
+                var html_4329283b85308c1a79a30869abb85410 = $(`<div id="html_4329283b85308c1a79a30869abb85410" style="width: 100.0%; height: 100.0%;"><b>Thusis, Viamala-Schlucht</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.2 km</b></span><br><small>Lat 46.66204  Lon 9.44825</small><br><small style='color:#888'>CSV-Zeile 15</small><br><a href="https://www.openstreetmap.org/?mlat=46.662043&mlon=9.448247&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf15" onchange="setAnno(15,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw15" onchange="setAnno(15,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt15" placeholder="Kommentar…" oninput="setAnno(15,'comment',this.value)"></div></div>`)[0];
+                popup_acd95ca17a3c6ffa75a1aee88f4d6ad6.setContent(html_4329283b85308c1a79a30869abb85410);
             
         
 
-        marker_d613b11735d6bc0fe9e5248fc5dd4cc8.bindPopup(popup_05c1e6b5f6f05150c5fee6da417bf3fe)
+        marker_eeb5dca7567a6384c558fa177c3969fa.bindPopup(popup_acd95ca17a3c6ffa75a1aee88f4d6ad6)
         ;
 
         
     
     
-            marker_d613b11735d6bc0fe9e5248fc5dd4cc8.bindTooltip(
+            marker_eeb5dca7567a6384c558fa177c3969fa.bindTooltip(
                 `<div>
                      Thusis, Viamala-Schlucht
                  </div>`,
@@ -643,17 +700,17 @@
             );
         
     
-                marker_d613b11735d6bc0fe9e5248fc5dd4cc8.setIcon(icon_0dec4ced3837515c9c856312dca4a713);
+                marker_eeb5dca7567a6384c558fa177c3969fa.setIcon(icon_9d5c12b9040d9687c8175c9ea3aaef13);
             
     
-            var marker_f504eef28b551bca4bf506e850775bfa = L.marker(
+            var marker_33b4dff9492b9e3ead6dd0b98c7999c8 = L.marker(
                 [46.46717, 10.37008],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_7387c51f55243a58bfb38ef627c2eb1c = L.AwesomeMarkers.icon(
+            var icon_e060311729b9b5fa9b1c0be59c65f59f = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -664,24 +721,24 @@
             );
         
     
-        var popup_f307e1c286bafb25af3782eb3c098614 = L.popup({
-  "maxWidth": 320,
+        var popup_08761098869736d094c62c2b361651cb = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_0f8b5800b3b1654c7c65798504b73aca = $(`<div id="html_0f8b5800b3b1654c7c65798504b73aca" style="width: 100.0%; height: 100.0%;"><b>Bormio, Ortsteilansicht</b><br>Bormio · Italy<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.46717  Lon 10.37008</small><br><small style='color:#888'>CSV-Zeile 16</small></div>`)[0];
-                popup_f307e1c286bafb25af3782eb3c098614.setContent(html_0f8b5800b3b1654c7c65798504b73aca);
+                var html_2bcf67bcd4dfb066c5f1cf7aad93156e = $(`<div id="html_2bcf67bcd4dfb066c5f1cf7aad93156e" style="width: 100.0%; height: 100.0%;"><b>Bormio, Ortsteilansicht</b><br>Bormio · Italy<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.46717  Lon 10.37008</small><br><small style='color:#888'>CSV-Zeile 16</small><br><a href="https://www.openstreetmap.org/?mlat=46.46717&mlon=10.37008&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf16" onchange="setAnno(16,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw16" onchange="setAnno(16,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt16" placeholder="Kommentar…" oninput="setAnno(16,'comment',this.value)"></div></div>`)[0];
+                popup_08761098869736d094c62c2b361651cb.setContent(html_2bcf67bcd4dfb066c5f1cf7aad93156e);
             
         
 
-        marker_f504eef28b551bca4bf506e850775bfa.bindPopup(popup_f307e1c286bafb25af3782eb3c098614)
+        marker_33b4dff9492b9e3ead6dd0b98c7999c8.bindPopup(popup_08761098869736d094c62c2b361651cb)
         ;
 
         
     
     
-            marker_f504eef28b551bca4bf506e850775bfa.bindTooltip(
+            marker_33b4dff9492b9e3ead6dd0b98c7999c8.bindTooltip(
                 `<div>
                      Bormio, Ortsteilansicht
                  </div>`,
@@ -691,17 +748,17 @@
             );
         
     
-                marker_f504eef28b551bca4bf506e850775bfa.setIcon(icon_7387c51f55243a58bfb38ef627c2eb1c);
+                marker_33b4dff9492b9e3ead6dd0b98c7999c8.setIcon(icon_e060311729b9b5fa9b1c0be59c65f59f);
             
     
-            var marker_0fc0f183f35ddcb7dc8ec4f845ef8137 = L.marker(
+            var marker_b1189cd24cadfbd9c5751e8637183d3b = L.marker(
                 [46.20304, 8.62333],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_60c33c16e19932bee65d8993ea749e44 = L.AwesomeMarkers.icon(
+            var icon_eec2e867fceb4986104fc2b3512a212b = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -712,24 +769,24 @@
             );
         
     
-        var popup_2559a311287beb9213c60852de946b89 = L.popup({
-  "maxWidth": 320,
+        var popup_a152d0b154de020270d6c6c45436547a = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_1ff393d4dfa07b2a63b39cf80b4df3ab = $(`<div id="html_1ff393d4dfa07b2a63b39cf80b4df3ab" style="width: 100.0%; height: 100.0%;"><b>Porträt, Kind, Onsernone</b><br>Russo · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.2 km</b></span><br><small>Lat 46.20304  Lon 8.62333</small><br><small style='color:#888'>CSV-Zeile 17</small></div>`)[0];
-                popup_2559a311287beb9213c60852de946b89.setContent(html_1ff393d4dfa07b2a63b39cf80b4df3ab);
+                var html_103a05e6737aee434605ce91f947f652 = $(`<div id="html_103a05e6737aee434605ce91f947f652" style="width: 100.0%; height: 100.0%;"><b>Porträt, Kind, Onsernone</b><br>Russo · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.2 km</b></span><br><small>Lat 46.20304  Lon 8.62333</small><br><small style='color:#888'>CSV-Zeile 17</small><br><a href="https://www.openstreetmap.org/?mlat=46.20304&mlon=8.62333&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf17" onchange="setAnno(17,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw17" onchange="setAnno(17,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt17" placeholder="Kommentar…" oninput="setAnno(17,'comment',this.value)"></div></div>`)[0];
+                popup_a152d0b154de020270d6c6c45436547a.setContent(html_103a05e6737aee434605ce91f947f652);
             
         
 
-        marker_0fc0f183f35ddcb7dc8ec4f845ef8137.bindPopup(popup_2559a311287beb9213c60852de946b89)
+        marker_b1189cd24cadfbd9c5751e8637183d3b.bindPopup(popup_a152d0b154de020270d6c6c45436547a)
         ;
 
         
     
     
-            marker_0fc0f183f35ddcb7dc8ec4f845ef8137.bindTooltip(
+            marker_b1189cd24cadfbd9c5751e8637183d3b.bindTooltip(
                 `<div>
                      Porträt, Kind, Onsernone
                  </div>`,
@@ -739,17 +796,17 @@
             );
         
     
-                marker_0fc0f183f35ddcb7dc8ec4f845ef8137.setIcon(icon_60c33c16e19932bee65d8993ea749e44);
+                marker_b1189cd24cadfbd9c5751e8637183d3b.setIcon(icon_eec2e867fceb4986104fc2b3512a212b);
             
     
-            var marker_179262c5bfeacc0541f1c8fc9c7186a5 = L.marker(
+            var marker_d9880e85338e82cdaf05bdd7a4768a6d = L.marker(
                 [46.87867, 9.52618],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_0aa99034a340f02797c6ef3cf796debd = L.AwesomeMarkers.icon(
+            var icon_69e670dbfdc8e3164eec3a6cba92823b = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -760,24 +817,24 @@
             );
         
     
-        var popup_4cc6f00d3479eb8567a75df8aaa54f39 = L.popup({
-  "maxWidth": 320,
+        var popup_11237ba8523aa0d62e6424a46d3ef816 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_3d2582a4df4d4c408ef6a96e05767788 = $(`<div id="html_3d2582a4df4d4c408ef6a96e05767788" style="width: 100.0%; height: 100.0%;"><b>Kläranlage</b><br>Haldenstein · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.9 km</b></span><br><small>Lat 46.87867  Lon 9.52618</small><br><small style='color:#888'>CSV-Zeile 18</small></div>`)[0];
-                popup_4cc6f00d3479eb8567a75df8aaa54f39.setContent(html_3d2582a4df4d4c408ef6a96e05767788);
+                var html_787d91e61586fb273a2d298cc6d545c3 = $(`<div id="html_787d91e61586fb273a2d298cc6d545c3" style="width: 100.0%; height: 100.0%;"><b>Kläranlage</b><br>Haldenstein · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.9 km</b></span><br><small>Lat 46.87867  Lon 9.52618</small><br><small style='color:#888'>CSV-Zeile 18</small><br><a href="https://www.openstreetmap.org/?mlat=46.87867&mlon=9.52618&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf18" onchange="setAnno(18,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw18" onchange="setAnno(18,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt18" placeholder="Kommentar…" oninput="setAnno(18,'comment',this.value)"></div></div>`)[0];
+                popup_11237ba8523aa0d62e6424a46d3ef816.setContent(html_787d91e61586fb273a2d298cc6d545c3);
             
         
 
-        marker_179262c5bfeacc0541f1c8fc9c7186a5.bindPopup(popup_4cc6f00d3479eb8567a75df8aaa54f39)
+        marker_d9880e85338e82cdaf05bdd7a4768a6d.bindPopup(popup_11237ba8523aa0d62e6424a46d3ef816)
         ;
 
         
     
     
-            marker_179262c5bfeacc0541f1c8fc9c7186a5.bindTooltip(
+            marker_d9880e85338e82cdaf05bdd7a4768a6d.bindTooltip(
                 `<div>
                      Kläranlage
                  </div>`,
@@ -787,19 +844,19 @@
             );
         
     
-                marker_179262c5bfeacc0541f1c8fc9c7186a5.setIcon(icon_0aa99034a340f02797c6ef3cf796debd);
+                marker_d9880e85338e82cdaf05bdd7a4768a6d.setIcon(icon_69e670dbfdc8e3164eec3a6cba92823b);
             
     
-            var marker_56afad3f18301ba6ff65ca08f221e53d = L.marker(
-                [41.90225, 12.45726],
+            var marker_d693aa5e866b491e202dd3776d73b9cb = L.marker(
+                [41.9022351, 12.4573573],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_185162c54687ac9b9c3c10f5729a3b1f = L.AwesomeMarkers.icon(
+            var icon_3ddf5b4cff5bfa753707590f8a5ef184 = L.AwesomeMarkers.icon(
                 {
-  "markerColor": "green",
+  "markerColor": "lightgreen",
   "iconColor": "white",
   "icon": "info-sign",
   "prefix": "glyphicon",
@@ -808,24 +865,24 @@
             );
         
     
-        var popup_cff299ba7f5d5b02d5c81ce14d53958a = L.popup({
-  "maxWidth": 320,
+        var popup_5dc15623472e9b1bc5b16ccc739ec5a7 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_9a85963b895037288c9f07dfa303c55b = $(`<div id="html_9a85963b895037288c9f07dfa303c55b" style="width: 100.0%; height: 100.0%;"><b>Roma, Piazza San Pietro, Teilansicht</b><br>Rom · Italy<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 41.90225  Lon 12.45726</small><br><small style='color:#888'>CSV-Zeile 19</small></div>`)[0];
-                popup_cff299ba7f5d5b02d5c81ce14d53958a.setContent(html_9a85963b895037288c9f07dfa303c55b);
+                var html_5727024c85ec3a111efd706a9c65f1f2 = $(`<div id="html_5727024c85ec3a111efd706a9c65f1f2" style="width: 100.0%; height: 100.0%;"><b>Roma, Piazza San Pietro, Teilansicht</b><br>Rom · Italy<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 41.90224  Lon 12.45736</small><br><small style='color:#888'>CSV-Zeile 19</small><br><a href="https://www.openstreetmap.org/?mlat=41.9022351&mlon=12.4573573&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf19" onchange="setAnno(19,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw19" onchange="setAnno(19,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt19" placeholder="Kommentar…" oninput="setAnno(19,'comment',this.value)"></div></div>`)[0];
+                popup_5dc15623472e9b1bc5b16ccc739ec5a7.setContent(html_5727024c85ec3a111efd706a9c65f1f2);
             
         
 
-        marker_56afad3f18301ba6ff65ca08f221e53d.bindPopup(popup_cff299ba7f5d5b02d5c81ce14d53958a)
+        marker_d693aa5e866b491e202dd3776d73b9cb.bindPopup(popup_5dc15623472e9b1bc5b16ccc739ec5a7)
         ;
 
         
     
     
-            marker_56afad3f18301ba6ff65ca08f221e53d.bindTooltip(
+            marker_d693aa5e866b491e202dd3776d73b9cb.bindTooltip(
                 `<div>
                      Roma, Piazza San Pietro, Teilansicht
                  </div>`,
@@ -835,17 +892,17 @@
             );
         
     
-                marker_56afad3f18301ba6ff65ca08f221e53d.setIcon(icon_185162c54687ac9b9c3c10f5729a3b1f);
+                marker_d693aa5e866b491e202dd3776d73b9cb.setIcon(icon_3ddf5b4cff5bfa753707590f8a5ef184);
             
     
-            var marker_88e210b51ce7cfae15b86df7c14bd76f = L.marker(
+            var marker_a85ad7193a4655e6290e0ff3e0a337dd = L.marker(
                 [45.6358911, 10.5996008],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_1eb03f48f94e46f31927fe94e1184b4b = L.AwesomeMarkers.icon(
+            var icon_d35f02f8f59614f4396561e601cbb6fa = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -856,24 +913,24 @@
             );
         
     
-        var popup_fba8f15dd0251774b5cddfd1c29de491 = L.popup({
-  "maxWidth": 320,
+        var popup_116fdfd579868abc8f6c621999999584 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_4ba36de58990b2dff2f2493ea4a94793 = $(`<div id="html_4ba36de58990b2dff2f2493ea4a94793" style="width: 100.0%; height: 100.0%;"><b>Maderno, Chiesa di Sant'Andrea</b><br>Maderno · Italy<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 45.63589  Lon 10.59960</small><br><small style='color:#888'>CSV-Zeile 20</small></div>`)[0];
-                popup_fba8f15dd0251774b5cddfd1c29de491.setContent(html_4ba36de58990b2dff2f2493ea4a94793);
+                var html_cc23d7ad0f56e2ba36408e56ebdb82d5 = $(`<div id="html_cc23d7ad0f56e2ba36408e56ebdb82d5" style="width: 100.0%; height: 100.0%;"><b>Maderno, Chiesa di Sant'Andrea</b><br>Maderno · Italy<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 45.63589  Lon 10.59960</small><br><small style='color:#888'>CSV-Zeile 20</small><br><a href="https://www.openstreetmap.org/?mlat=45.6358911&mlon=10.5996008&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf20" onchange="setAnno(20,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw20" onchange="setAnno(20,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt20" placeholder="Kommentar…" oninput="setAnno(20,'comment',this.value)"></div></div>`)[0];
+                popup_116fdfd579868abc8f6c621999999584.setContent(html_cc23d7ad0f56e2ba36408e56ebdb82d5);
             
         
 
-        marker_88e210b51ce7cfae15b86df7c14bd76f.bindPopup(popup_fba8f15dd0251774b5cddfd1c29de491)
+        marker_a85ad7193a4655e6290e0ff3e0a337dd.bindPopup(popup_116fdfd579868abc8f6c621999999584)
         ;
 
         
     
     
-            marker_88e210b51ce7cfae15b86df7c14bd76f.bindTooltip(
+            marker_a85ad7193a4655e6290e0ff3e0a337dd.bindTooltip(
                 `<div>
                      Maderno, Chiesa di Sant'Andrea
                  </div>`,
@@ -883,17 +940,17 @@
             );
         
     
-                marker_88e210b51ce7cfae15b86df7c14bd76f.setIcon(icon_1eb03f48f94e46f31927fe94e1184b4b);
+                marker_a85ad7193a4655e6290e0ff3e0a337dd.setIcon(icon_d35f02f8f59614f4396561e601cbb6fa);
             
     
-            var marker_e756d03d6ecb86bcaaed031a0686490d = L.marker(
+            var marker_f14f01a0d85d6933b1bd082bf7a90c66 = L.marker(
                 [49.96675, 7.8992],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_2a83efe8e520d841d6194dad19a8451e = L.AwesomeMarkers.icon(
+            var icon_f6a55e49da1013fa870602aced16a16d = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -904,24 +961,24 @@
             );
         
     
-        var popup_2b07c4e83adaa392077e45b6ff00291a = L.popup({
-  "maxWidth": 320,
+        var popup_7fed5ae688378aedf559bc1397277f9e = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_fb0309ea884a3e1801ed932f03d7dc9c = $(`<div id="html_fb0309ea884a3e1801ed932f03d7dc9c" style="width: 100.0%; height: 100.0%;"><b>Bingen am Rhein, Ortsteilansicht</b><br>Bingen · Germany<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 49.96675  Lon 7.89920</small><br><small style='color:#888'>CSV-Zeile 21</small></div>`)[0];
-                popup_2b07c4e83adaa392077e45b6ff00291a.setContent(html_fb0309ea884a3e1801ed932f03d7dc9c);
+                var html_910b204b855aa8cfafd3d2e3f4f27b92 = $(`<div id="html_910b204b855aa8cfafd3d2e3f4f27b92" style="width: 100.0%; height: 100.0%;"><b>Bingen am Rhein, Ortsteilansicht</b><br>Bingen · Germany<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 49.96675  Lon 7.89920</small><br><small style='color:#888'>CSV-Zeile 21</small><br><a href="https://www.openstreetmap.org/?mlat=49.96675&mlon=7.8992&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf21" onchange="setAnno(21,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw21" onchange="setAnno(21,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt21" placeholder="Kommentar…" oninput="setAnno(21,'comment',this.value)"></div></div>`)[0];
+                popup_7fed5ae688378aedf559bc1397277f9e.setContent(html_910b204b855aa8cfafd3d2e3f4f27b92);
             
         
 
-        marker_e756d03d6ecb86bcaaed031a0686490d.bindPopup(popup_2b07c4e83adaa392077e45b6ff00291a)
+        marker_f14f01a0d85d6933b1bd082bf7a90c66.bindPopup(popup_7fed5ae688378aedf559bc1397277f9e)
         ;
 
         
     
     
-            marker_e756d03d6ecb86bcaaed031a0686490d.bindTooltip(
+            marker_f14f01a0d85d6933b1bd082bf7a90c66.bindTooltip(
                 `<div>
                      Bingen am Rhein, Ortsteilansicht
                  </div>`,
@@ -931,17 +988,17 @@
             );
         
     
-                marker_e756d03d6ecb86bcaaed031a0686490d.setIcon(icon_2a83efe8e520d841d6194dad19a8451e);
+                marker_f14f01a0d85d6933b1bd082bf7a90c66.setIcon(icon_f6a55e49da1013fa870602aced16a16d);
             
     
-            var marker_7120bfc808b5a9b53b9979f8b60a1483 = L.marker(
+            var marker_129c5b1509cee4feb32ab6165d0c6603 = L.marker(
                 [46.5688383, 10.5248655],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_87a23868b909acdb5f3866c0ec2e9bb1 = L.AwesomeMarkers.icon(
+            var icon_e6f3867752bc800bf32c3ab09016b0b6 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -952,24 +1009,24 @@
             );
         
     
-        var popup_0f1f621f8e399b226b71a8a413e7fcce = L.popup({
-  "maxWidth": 320,
+        var popup_a64ac36ca303e0ccf210d9e0786d7624 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_018d0518b59f2b22b8084685e5d2e517 = $(`<div id="html_018d0518b59f2b22b8084685e5d2e517" style="width: 100.0%; height: 100.0%;"><b>Passo dello Stelvio, Landschaft</b><br>nan · Italy<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:orange"><b>Δ 7.0 km</b></span><br><small>Lat 46.56884  Lon 10.52487</small><br><small style='color:#888'>CSV-Zeile 22</small></div>`)[0];
-                popup_0f1f621f8e399b226b71a8a413e7fcce.setContent(html_018d0518b59f2b22b8084685e5d2e517);
+                var html_aebb91465e148c79d46c3e9f79fbb8e4 = $(`<div id="html_aebb91465e148c79d46c3e9f79fbb8e4" style="width: 100.0%; height: 100.0%;"><b>Passo dello Stelvio, Landschaft</b><br>nan · Italy<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:orange"><b>Δ 7.0 km</b></span><br><small>Lat 46.56884  Lon 10.52487</small><br><small style='color:#888'>CSV-Zeile 22</small><br><a href="https://www.openstreetmap.org/?mlat=46.5688383&mlon=10.5248655&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf22" onchange="setAnno(22,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw22" onchange="setAnno(22,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt22" placeholder="Kommentar…" oninput="setAnno(22,'comment',this.value)"></div></div>`)[0];
+                popup_a64ac36ca303e0ccf210d9e0786d7624.setContent(html_aebb91465e148c79d46c3e9f79fbb8e4);
             
         
 
-        marker_7120bfc808b5a9b53b9979f8b60a1483.bindPopup(popup_0f1f621f8e399b226b71a8a413e7fcce)
+        marker_129c5b1509cee4feb32ab6165d0c6603.bindPopup(popup_a64ac36ca303e0ccf210d9e0786d7624)
         ;
 
         
     
     
-            marker_7120bfc808b5a9b53b9979f8b60a1483.bindTooltip(
+            marker_129c5b1509cee4feb32ab6165d0c6603.bindTooltip(
                 `<div>
                      Passo dello Stelvio, Landschaft
                  </div>`,
@@ -979,17 +1036,17 @@
             );
         
     
-                marker_7120bfc808b5a9b53b9979f8b60a1483.setIcon(icon_87a23868b909acdb5f3866c0ec2e9bb1);
+                marker_129c5b1509cee4feb32ab6165d0c6603.setIcon(icon_e6f3867752bc800bf32c3ab09016b0b6);
             
     
-            var marker_e07033e38f4e51fec9462b9604356512 = L.marker(
+            var marker_e4aac9f9d01b4caf1ce5004051ed962c = L.marker(
                 [47.13961, 9.52434],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_57c605077841545086bbfd3640c6e58d = L.AwesomeMarkers.icon(
+            var icon_768d470a7bd897c012f2b7f15530130a = L.AwesomeMarkers.icon(
                 {
   "markerColor": "green",
   "iconColor": "white",
@@ -1000,24 +1057,24 @@
             );
         
     
-        var popup_747c66af2ce8b131de99fa9653d80112 = L.popup({
-  "maxWidth": 320,
+        var popup_b8db41da6a19836b99ba7c883d6fe5e4 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_f45e23eeb1b51e6fcd04183fecf69075 = $(`<div id="html_f45e23eeb1b51e6fcd04183fecf69075" style="width: 100.0%; height: 100.0%;"><b>Vaduz, Schloss Vaduz</b><br>Vaduz · Liechtenstein<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 47.13961  Lon 9.52434</small><br><small style='color:#888'>CSV-Zeile 23</small></div>`)[0];
-                popup_747c66af2ce8b131de99fa9653d80112.setContent(html_f45e23eeb1b51e6fcd04183fecf69075);
+                var html_082d2b3e2b0c9b6f7a19eb0e0ff85053 = $(`<div id="html_082d2b3e2b0c9b6f7a19eb0e0ff85053" style="width: 100.0%; height: 100.0%;"><b>Vaduz, Schloss Vaduz</b><br>Vaduz · Liechtenstein<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 47.13961  Lon 9.52434</small><br><small style='color:#888'>CSV-Zeile 23</small><br><a href="https://www.openstreetmap.org/?mlat=47.13961&mlon=9.52434&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf23" onchange="setAnno(23,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw23" onchange="setAnno(23,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt23" placeholder="Kommentar…" oninput="setAnno(23,'comment',this.value)"></div></div>`)[0];
+                popup_b8db41da6a19836b99ba7c883d6fe5e4.setContent(html_082d2b3e2b0c9b6f7a19eb0e0ff85053);
             
         
 
-        marker_e07033e38f4e51fec9462b9604356512.bindPopup(popup_747c66af2ce8b131de99fa9653d80112)
+        marker_e4aac9f9d01b4caf1ce5004051ed962c.bindPopup(popup_b8db41da6a19836b99ba7c883d6fe5e4)
         ;
 
         
     
     
-            marker_e07033e38f4e51fec9462b9604356512.bindTooltip(
+            marker_e4aac9f9d01b4caf1ce5004051ed962c.bindTooltip(
                 `<div>
                      Vaduz, Schloss Vaduz
                  </div>`,
@@ -1027,17 +1084,17 @@
             );
         
     
-                marker_e07033e38f4e51fec9462b9604356512.setIcon(icon_57c605077841545086bbfd3640c6e58d);
+                marker_e4aac9f9d01b4caf1ce5004051ed962c.setIcon(icon_768d470a7bd897c012f2b7f15530130a);
             
     
-            var marker_15a5597bc636fb801f1c88b141167621 = L.marker(
+            var marker_8bd3cba0f5729bf8345ac4203fe1d12a = L.marker(
                 [46.63228, 8.82877],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_ade2ee5c30d315f28f056791d749fd8e = L.AwesomeMarkers.icon(
+            var icon_96188d89979b09ac4a695a36a586259b = L.AwesomeMarkers.icon(
                 {
   "markerColor": "green",
   "iconColor": "white",
@@ -1048,24 +1105,24 @@
             );
         
     
-        var popup_6102288f0c1cd5f34b69d91d632ca197 = L.popup({
-  "maxWidth": 320,
+        var popup_d12fc4b7ab491e6c581f21ab1b761745 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_8903bdfe9c434a70a720bd8ed9a7e3a5 = $(`<div id="html_8903bdfe9c434a70a720bd8ed9a7e3a5" style="width: 100.0%; height: 100.0%;"><b>Obere Surselva und Val Medel</b><br>nan · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.63228  Lon 8.82877</small><br><small style='color:#888'>CSV-Zeile 24</small></div>`)[0];
-                popup_6102288f0c1cd5f34b69d91d632ca197.setContent(html_8903bdfe9c434a70a720bd8ed9a7e3a5);
+                var html_d1dc727dffd89328404b96c1a4b9165a = $(`<div id="html_d1dc727dffd89328404b96c1a4b9165a" style="width: 100.0%; height: 100.0%;"><b>Obere Surselva und Val Medel</b><br>nan · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.63228  Lon 8.82877</small><br><small style='color:#888'>CSV-Zeile 24</small><br><a href="https://www.openstreetmap.org/?mlat=46.63228&mlon=8.82877&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf24" onchange="setAnno(24,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw24" onchange="setAnno(24,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt24" placeholder="Kommentar…" oninput="setAnno(24,'comment',this.value)"></div></div>`)[0];
+                popup_d12fc4b7ab491e6c581f21ab1b761745.setContent(html_d1dc727dffd89328404b96c1a4b9165a);
             
         
 
-        marker_15a5597bc636fb801f1c88b141167621.bindPopup(popup_6102288f0c1cd5f34b69d91d632ca197)
+        marker_8bd3cba0f5729bf8345ac4203fe1d12a.bindPopup(popup_d12fc4b7ab491e6c581f21ab1b761745)
         ;
 
         
     
     
-            marker_15a5597bc636fb801f1c88b141167621.bindTooltip(
+            marker_8bd3cba0f5729bf8345ac4203fe1d12a.bindTooltip(
                 `<div>
                      Obere Surselva und Val Medel
                  </div>`,
@@ -1075,19 +1132,19 @@
             );
         
     
-                marker_15a5597bc636fb801f1c88b141167621.setIcon(icon_ade2ee5c30d315f28f056791d749fd8e);
+                marker_8bd3cba0f5729bf8345ac4203fe1d12a.setIcon(icon_96188d89979b09ac4a695a36a586259b);
             
     
-            var marker_6243084a8573100ce1bbeff73949471f = L.marker(
-                [46.614996, 8.1407328],
+            var marker_2ebef274becc566f50999df63730c53d = L.marker(
+                [46.61499, 8.14073],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_fd76d2d4b4609c7bebc029eb3d6726ea = L.AwesomeMarkers.icon(
+            var icon_ed59c1fa6dea2cabe1a7e64bb5e64f8a = L.AwesomeMarkers.icon(
                 {
-  "markerColor": "lightgreen",
+  "markerColor": "green",
   "iconColor": "white",
   "icon": "info-sign",
   "prefix": "glyphicon",
@@ -1096,24 +1153,24 @@
             );
         
     
-        var popup_e41e5990bad52824f8463e52cb225e1e = L.popup({
-  "maxWidth": 320,
+        var popup_f53dfb336052cb331d7ff0e559c15f5f = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_db6bd29698c0c3176aac78ce989468d6 = $(`<div id="html_db6bd29698c0c3176aac78ce989468d6" style="width: 100.0%; height: 100.0%;"><b>Bärglistock, Panorama</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.61500  Lon 8.14073</small><br><small style='color:#888'>CSV-Zeile 25</small></div>`)[0];
-                popup_e41e5990bad52824f8463e52cb225e1e.setContent(html_db6bd29698c0c3176aac78ce989468d6);
+                var html_2f4390c9b07fe071fa487c0667e8f4ac = $(`<div id="html_2f4390c9b07fe071fa487c0667e8f4ac" style="width: 100.0%; height: 100.0%;"><b>Bärglistock, Panorama</b><br>nan · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.61499  Lon 8.14073</small><br><small style='color:#888'>CSV-Zeile 25</small><br><a href="https://www.openstreetmap.org/?mlat=46.61499&mlon=8.14073&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf25" onchange="setAnno(25,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw25" onchange="setAnno(25,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt25" placeholder="Kommentar…" oninput="setAnno(25,'comment',this.value)"></div></div>`)[0];
+                popup_f53dfb336052cb331d7ff0e559c15f5f.setContent(html_2f4390c9b07fe071fa487c0667e8f4ac);
             
         
 
-        marker_6243084a8573100ce1bbeff73949471f.bindPopup(popup_e41e5990bad52824f8463e52cb225e1e)
+        marker_2ebef274becc566f50999df63730c53d.bindPopup(popup_f53dfb336052cb331d7ff0e559c15f5f)
         ;
 
         
     
     
-            marker_6243084a8573100ce1bbeff73949471f.bindTooltip(
+            marker_2ebef274becc566f50999df63730c53d.bindTooltip(
                 `<div>
                      Bärglistock, Panorama
                  </div>`,
@@ -1123,17 +1180,17 @@
             );
         
     
-                marker_6243084a8573100ce1bbeff73949471f.setIcon(icon_fd76d2d4b4609c7bebc029eb3d6726ea);
+                marker_2ebef274becc566f50999df63730c53d.setIcon(icon_ed59c1fa6dea2cabe1a7e64bb5e64f8a);
             
     
-            var marker_0197a9eaf3ae5766093259cebede1a55 = L.marker(
+            var marker_4161d9f97dd795d6f2fd767f22e1d6ca = L.marker(
                 [46.49067, 11.33982],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_36dab4fd2d2f36d02d10ac0dbedbca6e = L.AwesomeMarkers.icon(
+            var icon_cea64c236823cd1acfa6f32cbc4c570c = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -1144,24 +1201,24 @@
             );
         
     
-        var popup_e4f007697729c43b8d3783fa08cb87db = L.popup({
-  "maxWidth": 320,
+        var popup_564ab4ee905a347c9af097fb1241e3bd = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_26d210417d836d200ffb3110fcc5772a = $(`<div id="html_26d210417d836d200ffb3110fcc5772a" style="width: 100.0%; height: 100.0%;"><b>Bolzano, Johanneskofel</b><br>Bozen · Italy<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:orange"><b>Δ 6.9 km</b></span><br><small>Lat 46.49067  Lon 11.33982</small><br><small style='color:#888'>CSV-Zeile 26</small></div>`)[0];
-                popup_e4f007697729c43b8d3783fa08cb87db.setContent(html_26d210417d836d200ffb3110fcc5772a);
+                var html_88129afd02291d009a14e4ebbb5709b7 = $(`<div id="html_88129afd02291d009a14e4ebbb5709b7" style="width: 100.0%; height: 100.0%;"><b>Bolzano, Johanneskofel</b><br>Bozen · Italy<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:orange"><b>Δ 6.9 km</b></span><br><small>Lat 46.49067  Lon 11.33982</small><br><small style='color:#888'>CSV-Zeile 26</small><br><a href="https://www.openstreetmap.org/?mlat=46.49067&mlon=11.33982&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf26" onchange="setAnno(26,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw26" onchange="setAnno(26,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt26" placeholder="Kommentar…" oninput="setAnno(26,'comment',this.value)"></div></div>`)[0];
+                popup_564ab4ee905a347c9af097fb1241e3bd.setContent(html_88129afd02291d009a14e4ebbb5709b7);
             
         
 
-        marker_0197a9eaf3ae5766093259cebede1a55.bindPopup(popup_e4f007697729c43b8d3783fa08cb87db)
+        marker_4161d9f97dd795d6f2fd767f22e1d6ca.bindPopup(popup_564ab4ee905a347c9af097fb1241e3bd)
         ;
 
         
     
     
-            marker_0197a9eaf3ae5766093259cebede1a55.bindTooltip(
+            marker_4161d9f97dd795d6f2fd767f22e1d6ca.bindTooltip(
                 `<div>
                      Bolzano, Johanneskofel
                  </div>`,
@@ -1171,17 +1228,17 @@
             );
         
     
-                marker_0197a9eaf3ae5766093259cebede1a55.setIcon(icon_36dab4fd2d2f36d02d10ac0dbedbca6e);
+                marker_4161d9f97dd795d6f2fd767f22e1d6ca.setIcon(icon_cea64c236823cd1acfa6f32cbc4c570c);
             
     
-            var marker_0bfb80a6746610dc6b721e98e759b0f6 = L.marker(
+            var marker_0f441ecdc3f61ac6b47f7d9053d9af41 = L.marker(
                 [45.90482, 6.8454],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_351561d088ce7cb63a15463787a1a84f = L.AwesomeMarkers.icon(
+            var icon_34d50b36e18d76a3dae69d6f7e1b8f6d = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -1192,24 +1249,24 @@
             );
         
     
-        var popup_19ea3fe55605ae9698b4e880e37d3ff4 = L.popup({
-  "maxWidth": 320,
+        var popup_6d8868abccb7c42943384d2355660809 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_9948dfcd8528bf6a3673f3089b0fdfd5 = $(`<div id="html_9948dfcd8528bf6a3673f3089b0fdfd5" style="width: 100.0%; height: 100.0%;"><b>France, Les Bossons, Ortsgesamtansicht</b><br>Les Bossons · France<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.5 km</b></span><br><small>Lat 45.90482  Lon 6.84540</small><br><small style='color:#888'>CSV-Zeile 27</small></div>`)[0];
-                popup_19ea3fe55605ae9698b4e880e37d3ff4.setContent(html_9948dfcd8528bf6a3673f3089b0fdfd5);
+                var html_0aa63365592e26bb57e946d4e485e3b4 = $(`<div id="html_0aa63365592e26bb57e946d4e485e3b4" style="width: 100.0%; height: 100.0%;"><b>France, Les Bossons, Ortsgesamtansicht</b><br>Les Bossons · France<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.5 km</b></span><br><small>Lat 45.90482  Lon 6.84540</small><br><small style='color:#888'>CSV-Zeile 27</small><br><a href="https://www.openstreetmap.org/?mlat=45.90482&mlon=6.8454&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf27" onchange="setAnno(27,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw27" onchange="setAnno(27,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt27" placeholder="Kommentar…" oninput="setAnno(27,'comment',this.value)"></div></div>`)[0];
+                popup_6d8868abccb7c42943384d2355660809.setContent(html_0aa63365592e26bb57e946d4e485e3b4);
             
         
 
-        marker_0bfb80a6746610dc6b721e98e759b0f6.bindPopup(popup_19ea3fe55605ae9698b4e880e37d3ff4)
+        marker_0f441ecdc3f61ac6b47f7d9053d9af41.bindPopup(popup_6d8868abccb7c42943384d2355660809)
         ;
 
         
     
     
-            marker_0bfb80a6746610dc6b721e98e759b0f6.bindTooltip(
+            marker_0f441ecdc3f61ac6b47f7d9053d9af41.bindTooltip(
                 `<div>
                      France, Les Bossons, Ortsgesamtansicht
                  </div>`,
@@ -1219,17 +1276,17 @@
             );
         
     
-                marker_0bfb80a6746610dc6b721e98e759b0f6.setIcon(icon_351561d088ce7cb63a15463787a1a84f);
+                marker_0f441ecdc3f61ac6b47f7d9053d9af41.setIcon(icon_34d50b36e18d76a3dae69d6f7e1b8f6d);
             
     
-            var marker_60bb46a69f2516c0ca1dc03b8f67e41c = L.marker(
+            var marker_8a4e821990aa9f1ae498bbf8d2912ddd = L.marker(
                 [45.47568, 9.17231],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_acf3b03fe5d830969004211786c525a1 = L.AwesomeMarkers.icon(
+            var icon_3583add6cdb09ab3500033f48c251f48 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "green",
   "iconColor": "white",
@@ -1240,24 +1297,24 @@
             );
         
     
-        var popup_07106c0bd8d4f0f01ddc71b1a0c8b46c = L.popup({
-  "maxWidth": 320,
+        var popup_e2ef00b0e294a9f6c637e2da6b48657b = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_da9e77596851de8da2c3f0a755f320f7 = $(`<div id="html_da9e77596851de8da2c3f0a755f320f7" style="width: 100.0%; height: 100.0%;"><b>Italia, Milano, Arco della Pace, Gesamtansicht</b><br>Milan · Italy<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 45.47568  Lon 9.17231</small><br><small style='color:#888'>CSV-Zeile 28</small></div>`)[0];
-                popup_07106c0bd8d4f0f01ddc71b1a0c8b46c.setContent(html_da9e77596851de8da2c3f0a755f320f7);
+                var html_712130ed3497459b23880074dc131a69 = $(`<div id="html_712130ed3497459b23880074dc131a69" style="width: 100.0%; height: 100.0%;"><b>Italia, Milano, Arco della Pace, Gesamtansicht</b><br>Milan · Italy<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 45.47568  Lon 9.17231</small><br><small style='color:#888'>CSV-Zeile 28</small><br><a href="https://www.openstreetmap.org/?mlat=45.47568&mlon=9.17231&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf28" onchange="setAnno(28,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw28" onchange="setAnno(28,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt28" placeholder="Kommentar…" oninput="setAnno(28,'comment',this.value)"></div></div>`)[0];
+                popup_e2ef00b0e294a9f6c637e2da6b48657b.setContent(html_712130ed3497459b23880074dc131a69);
             
         
 
-        marker_60bb46a69f2516c0ca1dc03b8f67e41c.bindPopup(popup_07106c0bd8d4f0f01ddc71b1a0c8b46c)
+        marker_8a4e821990aa9f1ae498bbf8d2912ddd.bindPopup(popup_e2ef00b0e294a9f6c637e2da6b48657b)
         ;
 
         
     
     
-            marker_60bb46a69f2516c0ca1dc03b8f67e41c.bindTooltip(
+            marker_8a4e821990aa9f1ae498bbf8d2912ddd.bindTooltip(
                 `<div>
                      Italia, Milano, Arco della Pace, Gesamtansicht
                  </div>`,
@@ -1267,17 +1324,17 @@
             );
         
     
-                marker_60bb46a69f2516c0ca1dc03b8f67e41c.setIcon(icon_acf3b03fe5d830969004211786c525a1);
+                marker_8a4e821990aa9f1ae498bbf8d2912ddd.setIcon(icon_3583add6cdb09ab3500033f48c251f48);
             
     
-            var marker_4a8e0efbf4661ba70064f6a7049c44de = L.marker(
+            var marker_655082b630a1c8c8f3bcfcecd1def320 = L.marker(
                 [45.90818, 8.50033],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_7043789cc329a257835d2fc2c3865a81 = L.AwesomeMarkers.icon(
+            var icon_3b6bfbe81a560b2ae66ce5ea16937ce7 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -1288,24 +1345,24 @@
             );
         
     
-        var popup_0c8c0cbd81d57d312e0f41304f27b37e = L.popup({
-  "maxWidth": 320,
+        var popup_4840b3a634074e51fcc337f1e8e4b577 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_0dcb895a7413dd62e3ffc166e5af2218 = $(`<div id="html_0dcb895a7413dd62e3ffc166e5af2218" style="width: 100.0%; height: 100.0%;"><b>Italia, Baveno, Ortsgesamtansicht</b><br>Baveno · Italy<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 45.90818  Lon 8.50033</small><br><small style='color:#888'>CSV-Zeile 29</small></div>`)[0];
-                popup_0c8c0cbd81d57d312e0f41304f27b37e.setContent(html_0dcb895a7413dd62e3ffc166e5af2218);
+                var html_27b15892c956fe1de69556eed7b7d29b = $(`<div id="html_27b15892c956fe1de69556eed7b7d29b" style="width: 100.0%; height: 100.0%;"><b>Italia, Baveno, Ortsgesamtansicht</b><br>Baveno · Italy<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 45.90818  Lon 8.50033</small><br><small style='color:#888'>CSV-Zeile 29</small><br><a href="https://www.openstreetmap.org/?mlat=45.90818&mlon=8.50033&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf29" onchange="setAnno(29,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw29" onchange="setAnno(29,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt29" placeholder="Kommentar…" oninput="setAnno(29,'comment',this.value)"></div></div>`)[0];
+                popup_4840b3a634074e51fcc337f1e8e4b577.setContent(html_27b15892c956fe1de69556eed7b7d29b);
             
         
 
-        marker_4a8e0efbf4661ba70064f6a7049c44de.bindPopup(popup_0c8c0cbd81d57d312e0f41304f27b37e)
+        marker_655082b630a1c8c8f3bcfcecd1def320.bindPopup(popup_4840b3a634074e51fcc337f1e8e4b577)
         ;
 
         
     
     
-            marker_4a8e0efbf4661ba70064f6a7049c44de.bindTooltip(
+            marker_655082b630a1c8c8f3bcfcecd1def320.bindTooltip(
                 `<div>
                      Italia, Baveno, Ortsgesamtansicht
                  </div>`,
@@ -1315,17 +1372,17 @@
             );
         
     
-                marker_4a8e0efbf4661ba70064f6a7049c44de.setIcon(icon_7043789cc329a257835d2fc2c3865a81);
+                marker_655082b630a1c8c8f3bcfcecd1def320.setIcon(icon_3b6bfbe81a560b2ae66ce5ea16937ce7);
             
     
-            var marker_e081b7fb568e6cf36623e55a658d5756 = L.marker(
+            var marker_0a413288306960ae5fa7d1179634d331 = L.marker(
                 [46.6658011, 8.5887141],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_f2457b12f74f843e4edf94405f5ad45a = L.AwesomeMarkers.icon(
+            var icon_cc047ab477401686a3c897d4289bb9b0 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -1336,24 +1393,24 @@
             );
         
     
-        var popup_c369eb7381cd0d9923e16ef504b6da9f = L.popup({
-  "maxWidth": 320,
+        var popup_5ae1274e8a963e1c82630955a1e33eb8 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_f8c81f9568eb0ac9908c8246335a6807 = $(`<div id="html_f8c81f9568eb0ac9908c8246335a6807" style="width: 100.0%; height: 100.0%;"><b>Göschenen, Bahnhof, Gotthardbahn</b><br>Göschenen · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.66580  Lon 8.58871</small><br><small style='color:#888'>CSV-Zeile 30</small></div>`)[0];
-                popup_c369eb7381cd0d9923e16ef504b6da9f.setContent(html_f8c81f9568eb0ac9908c8246335a6807);
+                var html_c6d98b4cbdacf7088ecc25cf3e844b53 = $(`<div id="html_c6d98b4cbdacf7088ecc25cf3e844b53" style="width: 100.0%; height: 100.0%;"><b>Göschenen, Bahnhof, Gotthardbahn</b><br>Göschenen · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.66580  Lon 8.58871</small><br><small style='color:#888'>CSV-Zeile 30</small><br><a href="https://www.openstreetmap.org/?mlat=46.6658011&mlon=8.5887141&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf30" onchange="setAnno(30,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw30" onchange="setAnno(30,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt30" placeholder="Kommentar…" oninput="setAnno(30,'comment',this.value)"></div></div>`)[0];
+                popup_5ae1274e8a963e1c82630955a1e33eb8.setContent(html_c6d98b4cbdacf7088ecc25cf3e844b53);
             
         
 
-        marker_e081b7fb568e6cf36623e55a658d5756.bindPopup(popup_c369eb7381cd0d9923e16ef504b6da9f)
+        marker_0a413288306960ae5fa7d1179634d331.bindPopup(popup_5ae1274e8a963e1c82630955a1e33eb8)
         ;
 
         
     
     
-            marker_e081b7fb568e6cf36623e55a658d5756.bindTooltip(
+            marker_0a413288306960ae5fa7d1179634d331.bindTooltip(
                 `<div>
                      Göschenen, Bahnhof, Gotthardbahn
                  </div>`,
@@ -1363,17 +1420,17 @@
             );
         
     
-                marker_e081b7fb568e6cf36623e55a658d5756.setIcon(icon_f2457b12f74f843e4edf94405f5ad45a);
+                marker_0a413288306960ae5fa7d1179634d331.setIcon(icon_cc047ab477401686a3c897d4289bb9b0);
             
     
-            var marker_3d382e42410f522f5cad3731f2f57f77 = L.marker(
+            var marker_cfa2586af1aa78105fb6be2d20dae40f = L.marker(
                 [46.49937, 9.84327],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_4c856f56bb9c727226718731817c2792 = L.AwesomeMarkers.icon(
+            var icon_68e4605da8d317291e3152590c5d1417 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -1384,24 +1441,24 @@
             );
         
     
-        var popup_0beaa8a067c83dbb45205ac652eaf68a = L.popup({
-  "maxWidth": 320,
+        var popup_49c4873b620662730a1b1a66d8daea43 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_fd3ad1bff0d86ccc92479bb15591cb8d = $(`<div id="html_fd3ad1bff0d86ccc92479bb15591cb8d" style="width: 100.0%; height: 100.0%;"><b>Porträt, Männliche Person, St. Moritz</b><br>St. Moritz · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br>Periode: 1914-1918<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.49937  Lon 9.84327</small><br><small style='color:#888'>CSV-Zeile 31</small></div>`)[0];
-                popup_0beaa8a067c83dbb45205ac652eaf68a.setContent(html_fd3ad1bff0d86ccc92479bb15591cb8d);
+                var html_9857d6aa54450beffa6ed1d94ce33cb8 = $(`<div id="html_9857d6aa54450beffa6ed1d94ce33cb8" style="width: 100.0%; height: 100.0%;"><b>Porträt, Männliche Person, St. Moritz</b><br>St. Moritz · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br>Periode: 1914-1918<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.49937  Lon 9.84327</small><br><small style='color:#888'>CSV-Zeile 31</small><br><a href="https://www.openstreetmap.org/?mlat=46.49937&mlon=9.84327&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf31" onchange="setAnno(31,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw31" onchange="setAnno(31,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt31" placeholder="Kommentar…" oninput="setAnno(31,'comment',this.value)"></div></div>`)[0];
+                popup_49c4873b620662730a1b1a66d8daea43.setContent(html_9857d6aa54450beffa6ed1d94ce33cb8);
             
         
 
-        marker_3d382e42410f522f5cad3731f2f57f77.bindPopup(popup_0beaa8a067c83dbb45205ac652eaf68a)
+        marker_cfa2586af1aa78105fb6be2d20dae40f.bindPopup(popup_49c4873b620662730a1b1a66d8daea43)
         ;
 
         
     
     
-            marker_3d382e42410f522f5cad3731f2f57f77.bindTooltip(
+            marker_cfa2586af1aa78105fb6be2d20dae40f.bindTooltip(
                 `<div>
                      Porträt, Männliche Person, St. Moritz
                  </div>`,
@@ -1411,17 +1468,17 @@
             );
         
     
-                marker_3d382e42410f522f5cad3731f2f57f77.setIcon(icon_4c856f56bb9c727226718731817c2792);
+                marker_cfa2586af1aa78105fb6be2d20dae40f.setIcon(icon_68e4605da8d317291e3152590c5d1417);
             
     
-            var marker_4742702d30ee1c639a2b1a9e638177a6 = L.marker(
+            var marker_879d92da5a153d8b3a644eaadaade83c = L.marker(
                 [46.7012261, 9.1831841],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_5eceabeaf75d7c325af1b6153eb0d0f3 = L.AwesomeMarkers.icon(
+            var icon_c8e72d33e02bd5a41ef1c816a8798b74 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -1432,24 +1489,24 @@
             );
         
     
-        var popup_d215b9abf628623018bed8f8d647187a = L.popup({
-  "maxWidth": 320,
+        var popup_a1039e1c30dd9bc441abf207505c36a4 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_7e41d7121a7ea29ed27b8632ea07488a = $(`<div id="html_7e41d7121a7ea29ed27b8632ea07488a" style="width: 100.0%; height: 100.0%;"><b>Furth, Kapelle St. Karl Borromeo</b><br>Uors · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.70123  Lon 9.18318</small><br><small style='color:#888'>CSV-Zeile 32</small></div>`)[0];
-                popup_d215b9abf628623018bed8f8d647187a.setContent(html_7e41d7121a7ea29ed27b8632ea07488a);
+                var html_4e3bc9ca7b475c9a738ae8ef480d2c5d = $(`<div id="html_4e3bc9ca7b475c9a738ae8ef480d2c5d" style="width: 100.0%; height: 100.0%;"><b>Furth, Kapelle St. Karl Borromeo</b><br>Uors · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.70123  Lon 9.18318</small><br><small style='color:#888'>CSV-Zeile 32</small><br><a href="https://www.openstreetmap.org/?mlat=46.7012261&mlon=9.1831841&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf32" onchange="setAnno(32,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw32" onchange="setAnno(32,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt32" placeholder="Kommentar…" oninput="setAnno(32,'comment',this.value)"></div></div>`)[0];
+                popup_a1039e1c30dd9bc441abf207505c36a4.setContent(html_4e3bc9ca7b475c9a738ae8ef480d2c5d);
             
         
 
-        marker_4742702d30ee1c639a2b1a9e638177a6.bindPopup(popup_d215b9abf628623018bed8f8d647187a)
+        marker_879d92da5a153d8b3a644eaadaade83c.bindPopup(popup_a1039e1c30dd9bc441abf207505c36a4)
         ;
 
         
     
     
-            marker_4742702d30ee1c639a2b1a9e638177a6.bindTooltip(
+            marker_879d92da5a153d8b3a644eaadaade83c.bindTooltip(
                 `<div>
                      Furth, Kapelle St. Karl Borromeo
                  </div>`,
@@ -1459,17 +1516,17 @@
             );
         
     
-                marker_4742702d30ee1c639a2b1a9e638177a6.setIcon(icon_5eceabeaf75d7c325af1b6153eb0d0f3);
+                marker_879d92da5a153d8b3a644eaadaade83c.setIcon(icon_c8e72d33e02bd5a41ef1c816a8798b74);
             
     
-            var marker_1e5c3ca477ff669d9321397d045fa9a5 = L.marker(
+            var marker_5ff9715daea7b770776a0a536622914d = L.marker(
                 [46.8531008, 9.5369395],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_33d20a7ed86bcafdcb0c801acf9090d0 = L.AwesomeMarkers.icon(
+            var icon_4f4fb1cd622fd5e5c0f5278418062465 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -1480,24 +1537,24 @@
             );
         
     
-        var popup_50f7d142379a37fb158c48d520ccc9e9 = L.popup({
-  "maxWidth": 320,
+        var popup_fba9800dbaa49e356c9ba65afdbee617 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_aed33925bc342d9588c0e8848cd74369 = $(`<div id="html_aed33925bc342d9588c0e8848cd74369" style="width: 100.0%; height: 100.0%;"><b>Quaderschulhaus</b><br>Chur · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.1 km</b></span><br><small>Lat 46.85310  Lon 9.53694</small><br><small style='color:#888'>CSV-Zeile 33</small></div>`)[0];
-                popup_50f7d142379a37fb158c48d520ccc9e9.setContent(html_aed33925bc342d9588c0e8848cd74369);
+                var html_119251b3cab4dec151b7fb1a7410e92c = $(`<div id="html_119251b3cab4dec151b7fb1a7410e92c" style="width: 100.0%; height: 100.0%;"><b>Quaderschulhaus</b><br>Chur · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.1 km</b></span><br><small>Lat 46.85310  Lon 9.53694</small><br><small style='color:#888'>CSV-Zeile 33</small><br><a href="https://www.openstreetmap.org/?mlat=46.8531008&mlon=9.5369395&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf33" onchange="setAnno(33,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw33" onchange="setAnno(33,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt33" placeholder="Kommentar…" oninput="setAnno(33,'comment',this.value)"></div></div>`)[0];
+                popup_fba9800dbaa49e356c9ba65afdbee617.setContent(html_119251b3cab4dec151b7fb1a7410e92c);
             
         
 
-        marker_1e5c3ca477ff669d9321397d045fa9a5.bindPopup(popup_50f7d142379a37fb158c48d520ccc9e9)
+        marker_5ff9715daea7b770776a0a536622914d.bindPopup(popup_fba9800dbaa49e356c9ba65afdbee617)
         ;
 
         
     
     
-            marker_1e5c3ca477ff669d9321397d045fa9a5.bindTooltip(
+            marker_5ff9715daea7b770776a0a536622914d.bindTooltip(
                 `<div>
                      Quaderschulhaus
                  </div>`,
@@ -1507,17 +1564,17 @@
             );
         
     
-                marker_1e5c3ca477ff669d9321397d045fa9a5.setIcon(icon_33d20a7ed86bcafdcb0c801acf9090d0);
+                marker_5ff9715daea7b770776a0a536622914d.setIcon(icon_4f4fb1cd622fd5e5c0f5278418062465);
             
     
-            var marker_7ada98f5cd6b3286ecc6a64242c674b1 = L.marker(
+            var marker_3571c62afc7debcc62041c7555187102 = L.marker(
                 [47.5601485, 7.589726],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_5dc1a0e6aeccfe45d08b4388ad41921a = L.AwesomeMarkers.icon(
+            var icon_6b607f6f1ecf5330899e7c057e45d17e = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -1528,24 +1585,24 @@
             );
         
     
-        var popup_f6cd2717a142eb8c886a66403f5e599d = L.popup({
-  "maxWidth": 320,
+        var popup_db97dd9caaab3140a92d643511c3504e = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_bc32aeff9b56cc7d4af91c2ca6d08547 = $(`<div id="html_bc32aeff9b56cc7d4af91c2ca6d08547" style="width: 100.0%; height: 100.0%;"><b>Basel, Mittlere Brücke</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 47.56015  Lon 7.58973</small><br><small style='color:#888'>CSV-Zeile 34</small></div>`)[0];
-                popup_f6cd2717a142eb8c886a66403f5e599d.setContent(html_bc32aeff9b56cc7d4af91c2ca6d08547);
+                var html_9bf7a9a757e6881d02afe436769f1a8e = $(`<div id="html_9bf7a9a757e6881d02afe436769f1a8e" style="width: 100.0%; height: 100.0%;"><b>Basel, Mittlere Brücke</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 47.56015  Lon 7.58973</small><br><small style='color:#888'>CSV-Zeile 34</small><br><a href="https://www.openstreetmap.org/?mlat=47.5601485&mlon=7.589726&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf34" onchange="setAnno(34,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw34" onchange="setAnno(34,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt34" placeholder="Kommentar…" oninput="setAnno(34,'comment',this.value)"></div></div>`)[0];
+                popup_db97dd9caaab3140a92d643511c3504e.setContent(html_9bf7a9a757e6881d02afe436769f1a8e);
             
         
 
-        marker_7ada98f5cd6b3286ecc6a64242c674b1.bindPopup(popup_f6cd2717a142eb8c886a66403f5e599d)
+        marker_3571c62afc7debcc62041c7555187102.bindPopup(popup_db97dd9caaab3140a92d643511c3504e)
         ;
 
         
     
     
-            marker_7ada98f5cd6b3286ecc6a64242c674b1.bindTooltip(
+            marker_3571c62afc7debcc62041c7555187102.bindTooltip(
                 `<div>
                      Basel, Mittlere Brücke
                  </div>`,
@@ -1555,17 +1612,17 @@
             );
         
     
-                marker_7ada98f5cd6b3286ecc6a64242c674b1.setIcon(icon_5dc1a0e6aeccfe45d08b4388ad41921a);
+                marker_3571c62afc7debcc62041c7555187102.setIcon(icon_6b607f6f1ecf5330899e7c057e45d17e);
             
     
-            var marker_791614193617d3701b5e502a4c059ccf = L.marker(
+            var marker_1b699fdb1223d8abb384e9ee7eff4945 = L.marker(
                 [59.91273, 10.74609],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_9bde20108201d17cabf1077f11fd065b = L.AwesomeMarkers.icon(
+            var icon_a8685a98296036a758a7b72658070ccc = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -1576,24 +1633,24 @@
             );
         
     
-        var popup_cebf3272151ca34b9fd270715fc98a9e = L.popup({
-  "maxWidth": 320,
+        var popup_237d56a0eff7de62e261e6449e9889e9 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_2598196bcb3b73149559f06c39485527 = $(`<div id="html_2598196bcb3b73149559f06c39485527" style="width: 100.0%; height: 100.0%;"><b>Folketheateret in Oslo</b><br>Oslo · Norway<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.3 km</b></span><br><small>Lat 59.91273  Lon 10.74609</small><br><small style='color:#888'>CSV-Zeile 35</small></div>`)[0];
-                popup_cebf3272151ca34b9fd270715fc98a9e.setContent(html_2598196bcb3b73149559f06c39485527);
+                var html_54682cd63b1e3fdabd2fee4cff0e6522 = $(`<div id="html_54682cd63b1e3fdabd2fee4cff0e6522" style="width: 100.0%; height: 100.0%;"><b>Folketheateret in Oslo</b><br>Oslo · Norway<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.3 km</b></span><br><small>Lat 59.91273  Lon 10.74609</small><br><small style='color:#888'>CSV-Zeile 35</small><br><a href="https://www.openstreetmap.org/?mlat=59.91273&mlon=10.74609&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf35" onchange="setAnno(35,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw35" onchange="setAnno(35,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt35" placeholder="Kommentar…" oninput="setAnno(35,'comment',this.value)"></div></div>`)[0];
+                popup_237d56a0eff7de62e261e6449e9889e9.setContent(html_54682cd63b1e3fdabd2fee4cff0e6522);
             
         
 
-        marker_791614193617d3701b5e502a4c059ccf.bindPopup(popup_cebf3272151ca34b9fd270715fc98a9e)
+        marker_1b699fdb1223d8abb384e9ee7eff4945.bindPopup(popup_237d56a0eff7de62e261e6449e9889e9)
         ;
 
         
     
     
-            marker_791614193617d3701b5e502a4c059ccf.bindTooltip(
+            marker_1b699fdb1223d8abb384e9ee7eff4945.bindTooltip(
                 `<div>
                      Folketheateret in Oslo
                  </div>`,
@@ -1603,17 +1660,17 @@
             );
         
     
-                marker_791614193617d3701b5e502a4c059ccf.setIcon(icon_9bde20108201d17cabf1077f11fd065b);
+                marker_1b699fdb1223d8abb384e9ee7eff4945.setIcon(icon_a8685a98296036a758a7b72658070ccc);
             
     
-            var marker_841880328e325c4e7a5bc149d278ccc7 = L.marker(
+            var marker_98eaa5da88ff6ebf7037df819714520c = L.marker(
                 [46.2996912, 9.11425],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_1c4da9eb8c963b5b456f6b7efbc1ffb3 = L.AwesomeMarkers.icon(
+            var icon_53d481942926896def57deeb5b26a841 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -1624,24 +1681,24 @@
             );
         
     
-        var popup_30aeb760fdc4bf7fa23d7d881c765d6f = L.popup({
-  "maxWidth": 320,
+        var popup_9e71ded520d4ca37b4d3c355cfff255a = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_f2811fad6556f96b45e29197650e1f78 = $(`<div id="html_f2811fad6556f96b45e29197650e1f78" style="width: 100.0%; height: 100.0%;"><b>Arvigo</b><br>Arvigo · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.3 km</b></span><br><small>Lat 46.29969  Lon 9.11425</small><br><small style='color:#888'>CSV-Zeile 36</small></div>`)[0];
-                popup_30aeb760fdc4bf7fa23d7d881c765d6f.setContent(html_f2811fad6556f96b45e29197650e1f78);
+                var html_795f17adc1f7960b9c63b7a10c79e10e = $(`<div id="html_795f17adc1f7960b9c63b7a10c79e10e" style="width: 100.0%; height: 100.0%;"><b>Arvigo</b><br>Arvigo · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.3 km</b></span><br><small>Lat 46.29969  Lon 9.11425</small><br><small style='color:#888'>CSV-Zeile 36</small><br><a href="https://www.openstreetmap.org/?mlat=46.2996912&mlon=9.11425&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf36" onchange="setAnno(36,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw36" onchange="setAnno(36,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt36" placeholder="Kommentar…" oninput="setAnno(36,'comment',this.value)"></div></div>`)[0];
+                popup_9e71ded520d4ca37b4d3c355cfff255a.setContent(html_795f17adc1f7960b9c63b7a10c79e10e);
             
         
 
-        marker_841880328e325c4e7a5bc149d278ccc7.bindPopup(popup_30aeb760fdc4bf7fa23d7d881c765d6f)
+        marker_98eaa5da88ff6ebf7037df819714520c.bindPopup(popup_9e71ded520d4ca37b4d3c355cfff255a)
         ;
 
         
     
     
-            marker_841880328e325c4e7a5bc149d278ccc7.bindTooltip(
+            marker_98eaa5da88ff6ebf7037df819714520c.bindTooltip(
                 `<div>
                      Arvigo
                  </div>`,
@@ -1651,17 +1708,17 @@
             );
         
     
-                marker_841880328e325c4e7a5bc149d278ccc7.setIcon(icon_1c4da9eb8c963b5b456f6b7efbc1ffb3);
+                marker_98eaa5da88ff6ebf7037df819714520c.setIcon(icon_53d481942926896def57deeb5b26a841);
             
     
-            var marker_beee7020c95d4b92d5a85a1248080dd3 = L.marker(
+            var marker_6e25d3681a60ef8de33498c5364250ef = L.marker(
                 [46.3300298, 9.1214626],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_36cfbe1eee64cfe454c96dc10516bc0c = L.AwesomeMarkers.icon(
+            var icon_3d3c4f4c2bcb3963944c3abd705b4981 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -1672,24 +1729,24 @@
             );
         
     
-        var popup_aa0ad56cdde6296885d39fd0da2babb4 = L.popup({
-  "maxWidth": 320,
+        var popup_c1dd3babdcc0fbcac7d523d463f1693f = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_08ea88969f518553dea607e2f822ab5b = $(`<div id="html_08ea88969f518553dea607e2f822ab5b" style="width: 100.0%; height: 100.0%;"><b>Calancatal, Frau in Bündner Tracht</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 1.0 km</b></span><br><small>Lat 46.33003  Lon 9.12146</small><br><small style='color:#888'>CSV-Zeile 37</small></div>`)[0];
-                popup_aa0ad56cdde6296885d39fd0da2babb4.setContent(html_08ea88969f518553dea607e2f822ab5b);
+                var html_ce6307a8b2bf71b340716bb94c90d7b7 = $(`<div id="html_ce6307a8b2bf71b340716bb94c90d7b7" style="width: 100.0%; height: 100.0%;"><b>Calancatal, Frau in Bündner Tracht</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 1.0 km</b></span><br><small>Lat 46.33003  Lon 9.12146</small><br><small style='color:#888'>CSV-Zeile 37</small><br><a href="https://www.openstreetmap.org/?mlat=46.3300298&mlon=9.1214626&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf37" onchange="setAnno(37,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw37" onchange="setAnno(37,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt37" placeholder="Kommentar…" oninput="setAnno(37,'comment',this.value)"></div></div>`)[0];
+                popup_c1dd3babdcc0fbcac7d523d463f1693f.setContent(html_ce6307a8b2bf71b340716bb94c90d7b7);
             
         
 
-        marker_beee7020c95d4b92d5a85a1248080dd3.bindPopup(popup_aa0ad56cdde6296885d39fd0da2babb4)
+        marker_6e25d3681a60ef8de33498c5364250ef.bindPopup(popup_c1dd3babdcc0fbcac7d523d463f1693f)
         ;
 
         
     
     
-            marker_beee7020c95d4b92d5a85a1248080dd3.bindTooltip(
+            marker_6e25d3681a60ef8de33498c5364250ef.bindTooltip(
                 `<div>
                      Calancatal, Frau in Bündner Tracht
                  </div>`,
@@ -1699,17 +1756,17 @@
             );
         
     
-                marker_beee7020c95d4b92d5a85a1248080dd3.setIcon(icon_36cfbe1eee64cfe454c96dc10516bc0c);
+                marker_6e25d3681a60ef8de33498c5364250ef.setIcon(icon_3d3c4f4c2bcb3963944c3abd705b4981);
             
     
-            var marker_f798d0881d9f547a49d70c58f443627e = L.marker(
-                [46.70941, 9.43201],
+            var marker_12cd2594681151a563b9a6d911794f2d = L.marker(
+                [46.473, 9.5124],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_7454a486ea9ac928214ddc926ee051cd = L.AwesomeMarkers.icon(
+            var icon_6065e3919b2633cdcb4e914dd9b7872d = L.AwesomeMarkers.icon(
                 {
   "markerColor": "green",
   "iconColor": "white",
@@ -1720,24 +1777,24 @@
             );
         
     
-        var popup_fed071817eb39d779a6df417822ecd88 = L.popup({
-  "maxWidth": 320,
+        var popup_9a4582f38db9736a1b5626898cbc5870 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_1790ef14074d1e6e916ff8b9e8792460 = $(`<div id="html_1790ef14074d1e6e916ff8b9e8792460" style="width: 100.0%; height: 100.0%;"><b>Avers, Cresta, Wasserfall</b><br>Avers · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:red"><b>Δ 27.0 km</b></span><br><small>Lat 46.70941  Lon 9.43201</small><br><small style='color:#888'>CSV-Zeile 38</small></div>`)[0];
-                popup_fed071817eb39d779a6df417822ecd88.setContent(html_1790ef14074d1e6e916ff8b9e8792460);
+                var html_896f2deebaa726cacd8e87126b5abb66 = $(`<div id="html_896f2deebaa726cacd8e87126b5abb66" style="width: 100.0%; height: 100.0%;"><b>Avers, Cresta, Wasserfall</b><br>Avers · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.47300  Lon 9.51240</small><br><small style='color:#888'>CSV-Zeile 38</small><br><a href="https://www.openstreetmap.org/?mlat=46.473&mlon=9.5124&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf38" onchange="setAnno(38,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw38" onchange="setAnno(38,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt38" placeholder="Kommentar…" oninput="setAnno(38,'comment',this.value)"></div></div>`)[0];
+                popup_9a4582f38db9736a1b5626898cbc5870.setContent(html_896f2deebaa726cacd8e87126b5abb66);
             
         
 
-        marker_f798d0881d9f547a49d70c58f443627e.bindPopup(popup_fed071817eb39d779a6df417822ecd88)
+        marker_12cd2594681151a563b9a6d911794f2d.bindPopup(popup_9a4582f38db9736a1b5626898cbc5870)
         ;
 
         
     
     
-            marker_f798d0881d9f547a49d70c58f443627e.bindTooltip(
+            marker_12cd2594681151a563b9a6d911794f2d.bindTooltip(
                 `<div>
                      Avers, Cresta, Wasserfall
                  </div>`,
@@ -1747,17 +1804,17 @@
             );
         
     
-                marker_f798d0881d9f547a49d70c58f443627e.setIcon(icon_7454a486ea9ac928214ddc926ee051cd);
+                marker_12cd2594681151a563b9a6d911794f2d.setIcon(icon_6065e3919b2633cdcb4e914dd9b7872d);
             
     
-            var marker_e12d94953f3323654f1dd2269978053d = L.marker(
-                [46.8111, 8.9145],
+            var marker_0bb29672f643d2ca459805d0900b5b7d = L.marker(
+                [46.81227, 8.91508],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_3572af60ab599d7e170f03759c3a7371 = L.AwesomeMarkers.icon(
+            var icon_b468b036a04840bb9af8860968b3799e = L.AwesomeMarkers.icon(
                 {
   "markerColor": "green",
   "iconColor": "white",
@@ -1768,24 +1825,24 @@
             );
         
     
-        var popup_e133e9e3393435afe0cf9012ae3199f1 = L.popup({
-  "maxWidth": 320,
+        var popup_663bcbd087398ff8cfda09ee5c484d7d = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_f54e5d61e3c3aac4e135ffcc3a0fa31c = $(`<div id="html_f54e5d61e3c3aac4e135ffcc3a0fa31c" style="width: 100.0%; height: 100.0%;"><b>Tödi, Panorama</b><br>nan · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.81110  Lon 8.91450</small><br><small style='color:#888'>CSV-Zeile 39</small></div>`)[0];
-                popup_e133e9e3393435afe0cf9012ae3199f1.setContent(html_f54e5d61e3c3aac4e135ffcc3a0fa31c);
+                var html_daf6a153e34b09d5c8a579f5479d42f3 = $(`<div id="html_daf6a153e34b09d5c8a579f5479d42f3" style="width: 100.0%; height: 100.0%;"><b>Tödi, Panorama</b><br>nan · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.1 km</b></span><br><small>Lat 46.81227  Lon 8.91508</small><br><small style='color:#888'>CSV-Zeile 39</small><br><a href="https://www.openstreetmap.org/?mlat=46.81227&mlon=8.91508&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf39" onchange="setAnno(39,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw39" onchange="setAnno(39,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt39" placeholder="Kommentar…" oninput="setAnno(39,'comment',this.value)"></div></div>`)[0];
+                popup_663bcbd087398ff8cfda09ee5c484d7d.setContent(html_daf6a153e34b09d5c8a579f5479d42f3);
             
         
 
-        marker_e12d94953f3323654f1dd2269978053d.bindPopup(popup_e133e9e3393435afe0cf9012ae3199f1)
+        marker_0bb29672f643d2ca459805d0900b5b7d.bindPopup(popup_663bcbd087398ff8cfda09ee5c484d7d)
         ;
 
         
     
     
-            marker_e12d94953f3323654f1dd2269978053d.bindTooltip(
+            marker_0bb29672f643d2ca459805d0900b5b7d.bindTooltip(
                 `<div>
                      Tödi, Panorama
                  </div>`,
@@ -1795,17 +1852,17 @@
             );
         
     
-                marker_e12d94953f3323654f1dd2269978053d.setIcon(icon_3572af60ab599d7e170f03759c3a7371);
+                marker_0bb29672f643d2ca459805d0900b5b7d.setIcon(icon_b468b036a04840bb9af8860968b3799e);
             
     
-            var marker_31022a8b9d03210706891c3906126080 = L.marker(
+            var marker_b89de6645e6036fa436b5fc345e0594f = L.marker(
                 [46.0036289, 8.9516442],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_c70d168218348695a5d385534dc4ca61 = L.AwesomeMarkers.icon(
+            var icon_8d67a14a377827a647a5db93ac754a3d = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -1816,24 +1873,24 @@
             );
         
     
-        var popup_8b2ce4c98fc94274605498448d568116 = L.popup({
-  "maxWidth": 320,
+        var popup_70249bc93bbab384f1ebfe44f56e8ea7 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_c121729e3cc5a0e8b9ef3c4af3f54db2 = $(`<div id="html_c121729e3cc5a0e8b9ef3c4af3f54db2" style="width: 100.0%; height: 100.0%;"><b>Lugano, Piazza della Riforma</b><br>Lugano · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.00363  Lon 8.95164</small><br><small style='color:#888'>CSV-Zeile 40</small></div>`)[0];
-                popup_8b2ce4c98fc94274605498448d568116.setContent(html_c121729e3cc5a0e8b9ef3c4af3f54db2);
+                var html_7b49fe14c049998805207433730bc1ae = $(`<div id="html_7b49fe14c049998805207433730bc1ae" style="width: 100.0%; height: 100.0%;"><b>Lugano, Piazza della Riforma</b><br>Lugano · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.00363  Lon 8.95164</small><br><small style='color:#888'>CSV-Zeile 40</small><br><a href="https://www.openstreetmap.org/?mlat=46.0036289&mlon=8.9516442&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf40" onchange="setAnno(40,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw40" onchange="setAnno(40,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt40" placeholder="Kommentar…" oninput="setAnno(40,'comment',this.value)"></div></div>`)[0];
+                popup_70249bc93bbab384f1ebfe44f56e8ea7.setContent(html_7b49fe14c049998805207433730bc1ae);
             
         
 
-        marker_31022a8b9d03210706891c3906126080.bindPopup(popup_8b2ce4c98fc94274605498448d568116)
+        marker_b89de6645e6036fa436b5fc345e0594f.bindPopup(popup_70249bc93bbab384f1ebfe44f56e8ea7)
         ;
 
         
     
     
-            marker_31022a8b9d03210706891c3906126080.bindTooltip(
+            marker_b89de6645e6036fa436b5fc345e0594f.bindTooltip(
                 `<div>
                      Lugano, Piazza della Riforma
                  </div>`,
@@ -1843,17 +1900,17 @@
             );
         
     
-                marker_31022a8b9d03210706891c3906126080.setIcon(icon_c70d168218348695a5d385534dc4ca61);
+                marker_b89de6645e6036fa436b5fc345e0594f.setIcon(icon_8d67a14a377827a647a5db93ac754a3d);
             
     
-            var marker_ddcfac11a22ab1502b8e235ebd42b652 = L.marker(
+            var marker_c8253263be24a7d2e94e1585250ba7b3 = L.marker(
                 [46.65139, 9.42731],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_1ec7312ddf67727de3505d5e2a19553b = L.AwesomeMarkers.icon(
+            var icon_87218df406eb1cbfd2773134bbdcba4a = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -1864,24 +1921,24 @@
             );
         
     
-        var popup_a21e33f240b05905eccad4296bf6d1d6 = L.popup({
-  "maxWidth": 320,
+        var popup_8e8035c762857b95107e72e7a8cece60 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_06147e9dad78b52d8a668ed5eabca808 = $(`<div id="html_06147e9dad78b52d8a668ed5eabca808" style="width: 100.0%; height: 100.0%;"><b>Dorfansicht</b><br>Lohn · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.65139  Lon 9.42731</small><br><small style='color:#888'>CSV-Zeile 41</small></div>`)[0];
-                popup_a21e33f240b05905eccad4296bf6d1d6.setContent(html_06147e9dad78b52d8a668ed5eabca808);
+                var html_dd628b1656d22f5516e09a3de69b58eb = $(`<div id="html_dd628b1656d22f5516e09a3de69b58eb" style="width: 100.0%; height: 100.0%;"><b>Dorfansicht</b><br>Lohn · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.65139  Lon 9.42731</small><br><small style='color:#888'>CSV-Zeile 41</small><br><a href="https://www.openstreetmap.org/?mlat=46.65139&mlon=9.42731&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf41" onchange="setAnno(41,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw41" onchange="setAnno(41,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt41" placeholder="Kommentar…" oninput="setAnno(41,'comment',this.value)"></div></div>`)[0];
+                popup_8e8035c762857b95107e72e7a8cece60.setContent(html_dd628b1656d22f5516e09a3de69b58eb);
             
         
 
-        marker_ddcfac11a22ab1502b8e235ebd42b652.bindPopup(popup_a21e33f240b05905eccad4296bf6d1d6)
+        marker_c8253263be24a7d2e94e1585250ba7b3.bindPopup(popup_8e8035c762857b95107e72e7a8cece60)
         ;
 
         
     
     
-            marker_ddcfac11a22ab1502b8e235ebd42b652.bindTooltip(
+            marker_c8253263be24a7d2e94e1585250ba7b3.bindTooltip(
                 `<div>
                      Dorfansicht
                  </div>`,
@@ -1891,17 +1948,17 @@
             );
         
     
-                marker_ddcfac11a22ab1502b8e235ebd42b652.setIcon(icon_1ec7312ddf67727de3505d5e2a19553b);
+                marker_c8253263be24a7d2e94e1585250ba7b3.setIcon(icon_87218df406eb1cbfd2773134bbdcba4a);
             
     
-            var marker_1a0ae28e87e795428501c5fd4289f8d7 = L.marker(
+            var marker_bc322b21805b0e3726db459309efc508 = L.marker(
                 [46.62934, 9.74762],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_9195fd674ade9fa8a90435d86713cb1d = L.AwesomeMarkers.icon(
+            var icon_4ab144ca36c534fb57046f3b37425ec6 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -1912,24 +1969,24 @@
             );
         
     
-        var popup_5b88952628ce7f3c2fea82bce874645e = L.popup({
-  "maxWidth": 320,
+        var popup_6d4eededdd6e5c276d5ee7437ab1198f = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_77a214908a541ce24903003a6b1e3ed8 = $(`<div id="html_77a214908a541ce24903003a6b1e3ed8" style="width: 100.0%; height: 100.0%;"><b>Bergün/Bravuogn, Grand Hotel, Gesamtaussenansicht</b><br>Bergün/Bravuogn · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.1 km</b></span><br><small>Lat 46.62934  Lon 9.74762</small><br><small style='color:#888'>CSV-Zeile 42</small></div>`)[0];
-                popup_5b88952628ce7f3c2fea82bce874645e.setContent(html_77a214908a541ce24903003a6b1e3ed8);
+                var html_a4abc1c7fe76cd6990d20a0f398c6ff7 = $(`<div id="html_a4abc1c7fe76cd6990d20a0f398c6ff7" style="width: 100.0%; height: 100.0%;"><b>Bergün/Bravuogn, Grand Hotel, Gesamtaussenansicht</b><br>Bergün/Bravuogn · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.1 km</b></span><br><small>Lat 46.62934  Lon 9.74762</small><br><small style='color:#888'>CSV-Zeile 42</small><br><a href="https://www.openstreetmap.org/?mlat=46.62934&mlon=9.74762&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf42" onchange="setAnno(42,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw42" onchange="setAnno(42,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt42" placeholder="Kommentar…" oninput="setAnno(42,'comment',this.value)"></div></div>`)[0];
+                popup_6d4eededdd6e5c276d5ee7437ab1198f.setContent(html_a4abc1c7fe76cd6990d20a0f398c6ff7);
             
         
 
-        marker_1a0ae28e87e795428501c5fd4289f8d7.bindPopup(popup_5b88952628ce7f3c2fea82bce874645e)
+        marker_bc322b21805b0e3726db459309efc508.bindPopup(popup_6d4eededdd6e5c276d5ee7437ab1198f)
         ;
 
         
     
     
-            marker_1a0ae28e87e795428501c5fd4289f8d7.bindTooltip(
+            marker_bc322b21805b0e3726db459309efc508.bindTooltip(
                 `<div>
                      Bergün/Bravuogn, Grand Hotel, Gesamtaussenansicht
                  </div>`,
@@ -1939,17 +1996,17 @@
             );
         
     
-                marker_1a0ae28e87e795428501c5fd4289f8d7.setIcon(icon_9195fd674ade9fa8a90435d86713cb1d);
+                marker_bc322b21805b0e3726db459309efc508.setIcon(icon_4ab144ca36c534fb57046f3b37425ec6);
             
     
-            var marker_d7f9b6dc1419582078a362a4de2ee6bc = L.marker(
+            var marker_90024068a8beeb48e7d359c159596552 = L.marker(
                 [46.50636, 9.78734],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_b4a24844399198b43f50789dd19e930f = L.AwesomeMarkers.icon(
+            var icon_27e915d1f67e09bd59dba0d194b02842 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "green",
   "iconColor": "white",
@@ -1960,24 +2017,24 @@
             );
         
     
-        var popup_417af8c885ef76aae0ada3520e5b5af8 = L.popup({
-  "maxWidth": 320,
+        var popup_c19d2840c4df404e5a08cca242a265eb = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_66cbbda71961048a7ceea7d35097e111 = $(`<div id="html_66cbbda71961048a7ceea7d35097e111" style="width: 100.0%; height: 100.0%;"><b>Piz Nair, Panorama</b><br>nan · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.50636  Lon 9.78734</small><br><small style='color:#888'>CSV-Zeile 43</small></div>`)[0];
-                popup_417af8c885ef76aae0ada3520e5b5af8.setContent(html_66cbbda71961048a7ceea7d35097e111);
+                var html_3799d330c87e64a629982d9971d47851 = $(`<div id="html_3799d330c87e64a629982d9971d47851" style="width: 100.0%; height: 100.0%;"><b>Piz Nair, Panorama</b><br>nan · Switzerland<br>●●●●● Score 5 (GEO DB / TGN präzis)<br><span style="color:green"><b>Δ 0.0 km</b></span><br><small>Lat 46.50636  Lon 9.78734</small><br><small style='color:#888'>CSV-Zeile 43</small><br><a href="https://www.openstreetmap.org/?mlat=46.50636&mlon=9.78734&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf43" onchange="setAnno(43,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw43" onchange="setAnno(43,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt43" placeholder="Kommentar…" oninput="setAnno(43,'comment',this.value)"></div></div>`)[0];
+                popup_c19d2840c4df404e5a08cca242a265eb.setContent(html_3799d330c87e64a629982d9971d47851);
             
         
 
-        marker_d7f9b6dc1419582078a362a4de2ee6bc.bindPopup(popup_417af8c885ef76aae0ada3520e5b5af8)
+        marker_90024068a8beeb48e7d359c159596552.bindPopup(popup_c19d2840c4df404e5a08cca242a265eb)
         ;
 
         
     
     
-            marker_d7f9b6dc1419582078a362a4de2ee6bc.bindTooltip(
+            marker_90024068a8beeb48e7d359c159596552.bindTooltip(
                 `<div>
                      Piz Nair, Panorama
                  </div>`,
@@ -1987,17 +2044,17 @@
             );
         
     
-                marker_d7f9b6dc1419582078a362a4de2ee6bc.setIcon(icon_b4a24844399198b43f50789dd19e930f);
+                marker_90024068a8beeb48e7d359c159596552.setIcon(icon_27e915d1f67e09bd59dba0d194b02842);
             
     
-            var marker_d5d654ad5a93f87fc38c0f933b8838b5 = L.marker(
+            var marker_c8e132f0b626deda664bb720ddc7bf51 = L.marker(
                 [46.8112255, 9.843852],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_0211827c0a39bbd88d225726ea406338 = L.AwesomeMarkers.icon(
+            var icon_55b57270155315aba9bc4ea9a7affb66 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "lightgreen",
   "iconColor": "white",
@@ -2008,24 +2065,24 @@
             );
         
     
-        var popup_585716f3b9522843abc137257f598b24 = L.popup({
-  "maxWidth": 320,
+        var popup_6e2e65ef4ff938425e653bebdb943928 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_20a4c1454a9c4e844aaef554328e8061 = $(`<div id="html_20a4c1454a9c4e844aaef554328e8061" style="width: 100.0%; height: 100.0%;"><b>Flüelastrasse, Landschaft</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:red"><b>Δ 10.5 km</b></span><br><small>Lat 46.81123  Lon 9.84385</small><br><small style='color:#888'>CSV-Zeile 44</small></div>`)[0];
-                popup_585716f3b9522843abc137257f598b24.setContent(html_20a4c1454a9c4e844aaef554328e8061);
+                var html_5ed31c58a10236a62a001263973eb86e = $(`<div id="html_5ed31c58a10236a62a001263973eb86e" style="width: 100.0%; height: 100.0%;"><b>Flüelastrasse, Landschaft</b><br>nan · Switzerland<br>●●●●○ Score 4 (Nominatim präzis)<br><span style="color:red"><b>Δ 10.5 km</b></span><br><small>Lat 46.81123  Lon 9.84385</small><br><small style='color:#888'>CSV-Zeile 44</small><br><a href="https://www.openstreetmap.org/?mlat=46.8112255&mlon=9.843852&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf44" onchange="setAnno(44,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw44" onchange="setAnno(44,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt44" placeholder="Kommentar…" oninput="setAnno(44,'comment',this.value)"></div></div>`)[0];
+                popup_6e2e65ef4ff938425e653bebdb943928.setContent(html_5ed31c58a10236a62a001263973eb86e);
             
         
 
-        marker_d5d654ad5a93f87fc38c0f933b8838b5.bindPopup(popup_585716f3b9522843abc137257f598b24)
+        marker_c8e132f0b626deda664bb720ddc7bf51.bindPopup(popup_6e2e65ef4ff938425e653bebdb943928)
         ;
 
         
     
     
-            marker_d5d654ad5a93f87fc38c0f933b8838b5.bindTooltip(
+            marker_c8e132f0b626deda664bb720ddc7bf51.bindTooltip(
                 `<div>
                      Flüelastrasse, Landschaft
                  </div>`,
@@ -2035,17 +2092,17 @@
             );
         
     
-                marker_d5d654ad5a93f87fc38c0f933b8838b5.setIcon(icon_0211827c0a39bbd88d225726ea406338);
+                marker_c8e132f0b626deda664bb720ddc7bf51.setIcon(icon_55b57270155315aba9bc4ea9a7affb66);
             
     
-            var marker_d2207bffc43d1c353c07fc89030b74db = L.marker(
+            var marker_a5335eefb0fc72787939946c862aa966 = L.marker(
                 [46.83386, 10.3815],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_5319ecb9386dbf8248e030fab3325302 = L.AwesomeMarkers.icon(
+            var icon_506328c0eaf70ee39d4cefcfd59eded5 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -2056,24 +2113,24 @@
             );
         
     
-        var popup_05fad139804cb985932df96e10a45c3a = L.popup({
-  "maxWidth": 320,
+        var popup_e56eb2103ab467aa80f7de0856feeff5 = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_bccc10e44d5da5c7db745adbf34c3977 = $(`<div id="html_bccc10e44d5da5c7db745adbf34c3977" style="width: 100.0%; height: 100.0%;"><b>Ramosch, Burgruine Tschanüff, Gesamtaussenansicht</b><br>Ramosch · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.4 km</b></span><br><small>Lat 46.83386  Lon 10.38150</small><br><small style='color:#888'>CSV-Zeile 45</small></div>`)[0];
-                popup_05fad139804cb985932df96e10a45c3a.setContent(html_bccc10e44d5da5c7db745adbf34c3977);
+                var html_d4df9c214c67152f14da3e5d0be62b69 = $(`<div id="html_d4df9c214c67152f14da3e5d0be62b69" style="width: 100.0%; height: 100.0%;"><b>Ramosch, Burgruine Tschanüff, Gesamtaussenansicht</b><br>Ramosch · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.4 km</b></span><br><small>Lat 46.83386  Lon 10.38150</small><br><small style='color:#888'>CSV-Zeile 45</small><br><a href="https://www.openstreetmap.org/?mlat=46.83386&mlon=10.3815&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf45" onchange="setAnno(45,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw45" onchange="setAnno(45,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt45" placeholder="Kommentar…" oninput="setAnno(45,'comment',this.value)"></div></div>`)[0];
+                popup_e56eb2103ab467aa80f7de0856feeff5.setContent(html_d4df9c214c67152f14da3e5d0be62b69);
             
         
 
-        marker_d2207bffc43d1c353c07fc89030b74db.bindPopup(popup_05fad139804cb985932df96e10a45c3a)
+        marker_a5335eefb0fc72787939946c862aa966.bindPopup(popup_e56eb2103ab467aa80f7de0856feeff5)
         ;
 
         
     
     
-            marker_d2207bffc43d1c353c07fc89030b74db.bindTooltip(
+            marker_a5335eefb0fc72787939946c862aa966.bindTooltip(
                 `<div>
                      Ramosch, Burgruine Tschanüff, Gesamtaussenansicht
                  </div>`,
@@ -2083,17 +2140,17 @@
             );
         
     
-                marker_d2207bffc43d1c353c07fc89030b74db.setIcon(icon_5319ecb9386dbf8248e030fab3325302);
+                marker_a5335eefb0fc72787939946c862aa966.setIcon(icon_506328c0eaf70ee39d4cefcfd59eded5);
             
     
-            var marker_a30291ec8009529c5e461a36982203b8 = L.marker(
+            var marker_4dac69f0e3f1bc0b705906e8efca7606 = L.marker(
                 [46.61428, 9.43807],
                 {
 }
-            ).addTo(marker_cluster_cf91486dc7d0383d1615bee4273de972);
+            ).addTo(marker_cluster_798a0db5723935bacda0a4f234412c66);
         
     
-            var icon_aa9c2d5ed3975af62b80663a3ffb00ad = L.AwesomeMarkers.icon(
+            var icon_d4cebe302ad62308c8cc59d66f0f4184 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "orange",
   "iconColor": "white",
@@ -2104,24 +2161,24 @@
             );
         
     
-        var popup_25bbc867ed427169ef021c06d01560cb = L.popup({
-  "maxWidth": 320,
+        var popup_406b555eebf2ae120ab7c13e8930dffb = L.popup({
+  "maxWidth": 340,
 });
 
         
             
-                var html_b573cb9a46dd020655ba73378134cb87 = $(`<div id="html_b573cb9a46dd020655ba73378134cb87" style="width: 100.0%; height: 100.0%;"><b>Pignia bei Andeer, Ortsteilansicht</b><br>Pignia · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.1 km</b></span><br><small>Lat 46.61428  Lon 9.43807</small><br><small style='color:#888'>CSV-Zeile 46</small></div>`)[0];
-                popup_25bbc867ed427169ef021c06d01560cb.setContent(html_b573cb9a46dd020655ba73378134cb87);
+                var html_328b0b2e1a70888dbd11fab77fb6a7a1 = $(`<div id="html_328b0b2e1a70888dbd11fab77fb6a7a1" style="width: 100.0%; height: 100.0%;"><b>Pignia bei Andeer, Ortsteilansicht</b><br>Pignia · Switzerland<br>●●●○○ Score 3 (Stadtzentrum GEO DB)<br><i>Fallback (Stadtzentrum)</i><br><span style="color:green"><b>Δ 0.1 km</b></span><br><small>Lat 46.61428  Lon 9.43807</small><br><small style='color:#888'>CSV-Zeile 46</small><br><a href="https://www.openstreetmap.org/?mlat=46.61428&mlon=9.43807&zoom=14" target="_blank">🔗 Map</a><br><div class="anno"><label><input type="checkbox" id="cbf46" onchange="setAnno(46,'fehler',this.checked)"> ❌ Fehler</label><label style="margin-left:8px"><input type="checkbox" id="cbw46" onchange="setAnno(46,'wow',this.checked)"> ⭐ Wow</label><br><input type="text" id="txt46" placeholder="Kommentar…" oninput="setAnno(46,'comment',this.value)"></div></div>`)[0];
+                popup_406b555eebf2ae120ab7c13e8930dffb.setContent(html_328b0b2e1a70888dbd11fab77fb6a7a1);
             
         
 
-        marker_a30291ec8009529c5e461a36982203b8.bindPopup(popup_25bbc867ed427169ef021c06d01560cb)
+        marker_4dac69f0e3f1bc0b705906e8efca7606.bindPopup(popup_406b555eebf2ae120ab7c13e8930dffb)
         ;
 
         
     
     
-            marker_a30291ec8009529c5e461a36982203b8.bindTooltip(
+            marker_4dac69f0e3f1bc0b705906e8efca7606.bindTooltip(
                 `<div>
                      Pignia bei Andeer, Ortsteilansicht
                  </div>`,
@@ -2131,10 +2188,10 @@
             );
         
     
-                marker_a30291ec8009529c5e461a36982203b8.setIcon(icon_aa9c2d5ed3975af62b80663a3ffb00ad);
+                marker_4dac69f0e3f1bc0b705906e8efca7606.setIcon(icon_d4cebe302ad62308c8cc59d66f0f4184);
             
     
-            marker_cluster_cf91486dc7d0383d1615bee4273de972.addTo(map_5d85523f0915bfe2d749f74906b432ff);
+            marker_cluster_798a0db5723935bacda0a4f234412c66.addTo(map_1b4c12737d35a4c1f8f6cd661f54fbf2);
         
 </script>
 </html>

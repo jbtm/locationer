@@ -15,6 +15,8 @@ COLUMN_MAP: dict[str, list[str]] = {
     "description": ["description", "beschreibung", "desc", "text", "caption", "legende"],
     "country":     ["country", "land", "pays", "pais", "country_name"],
     "city":        ["city", "stadt", "ville", "adresse", "address", "ort", "place"],
+    "region":      ["region", "kanton", "canton", "bundesland", "state", "province",
+                    "provincia", "département", "departement", "county"],
 }
 
 META_SYSTEM_PROMPT = """\
@@ -324,12 +326,18 @@ class InputNormalizer:
                 loc_type = (item.get("location_type") or "").strip()
                 if loc_type:
                     location = f"{loc_type.title()} {city}"
+            # Region priority: input column > Haiku extraction.
+            # If the input CSV has a canton/region column, it is authoritative.
+            ai_region = str(item.get("region", "")).strip()
+            input_region = mapped.get("region", "").strip()
+            region = input_region if input_region else ai_region
+
             records.append(
                 NormalizedRecord(
                     title=str(item.get("title", mapped.get("title", "")))[:60],
                     description=mapped.get("description", ""),
                     country=str(item.get("country", mapped.get("country", ""))),
-                    region=str(item.get("region", "")),
+                    region=region,
                     city=city,
                     location=location,
                 )

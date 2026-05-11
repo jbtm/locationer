@@ -77,17 +77,21 @@ def parse_periode_pctm(text) -> str | None:
         return f"{a}-{b}" if a and b else None
 
     # yyyy-yyyy  (year range, second part may be 2 or 4 digits)
+    # Guard: 2-digit value ≤ 12 is a month (1947-09 → 1947:09, not 1947-1909)
     m = re.match(r'^(\d{4})\s*[-–]\s*(\d{2,4})$', s)
     if m:
-        y1, y2 = int(m.group(1)), int(m.group(2))
-        if len(m.group(2)) == 2:
-            y2 = (y1 // 100) * 100 + y2   # 1914-18 → 1918
+        second = m.group(2)
+        y1 = int(m.group(1))
+        raw = int(second)
+        if len(second) == 2 and raw <= 12:
+            return _fmt(str(y1), second)   # treat as month: 1947-09 → 1947:09
+        y2 = (y1 // 100) * 100 + raw if len(second) == 2 else raw  # 1914-18 → 1918
         if y2 > 12:
             a = _fmt(str(y1))
             b = _fmt(str(y2))
             return f"{a}-{b}" if a and b else None
 
-    # yyyy-mm  (single month — second part ≤ 12)
+    # yyyy-mm  (single month — 1-digit: 1947-9 → 1947:09)
     m = re.match(r'^(\d{4})[-/:](\d{1,2})$', s)
     if m and int(m.group(2)) <= 12:
         return _fmt(m.group(1), m.group(2))
@@ -327,6 +331,10 @@ def _process_chunk(
         }
         if has_true_coords:
             out["Deviation_km"] = round(dev_km, 2) if dev_km is not None else None
+        if geo.lat is not None:
+            out["Map"] = f"https://www.openstreetmap.org/?mlat={geo.lat}&mlon={geo.lon}&zoom=14"
+        else:
+            out["Map"] = None
         output_rows.append(out)
     return output_rows, unknown_loc
 
@@ -493,6 +501,17 @@ def main():
         geo_db.close()
     if tgn_db:
         tgn_db.close()
+
+    # Auto-generate QA map
+    try:
+        from v4.map import main as map_main
+        import sys as _sys
+        _argv = _sys.argv
+        _sys.argv = ["v4.map", out_path]
+        map_main()
+        _sys.argv = _argv
+    except Exception as e:
+        print(f"Karte nicht generiert: {e}")
 
     from v4.metrics import TESTFILE, measure, to_row, update_log, print_table
     if Path(args.input).resolve() == Path(TESTFILE).resolve():

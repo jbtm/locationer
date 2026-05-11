@@ -6,6 +6,68 @@ Quellen: GeoNames (CC BY 4.0), Getty TGN (ODC-By), OpenStreetMap/Nominatim (ODbL
 
 ---
 
+## 0. Checkliste: Neue Sammlung einrichten
+
+Vor dem ersten Lauf mit einer neuen Sammlung diese Punkte abarbeiten:
+
+### Inputfile vorbereiten
+
+- [ ] **Format:** CSV (`,` oder `;` als Separator, automatisch erkannt) oder XLSX
+- [ ] **Encoding:** UTF-8 oder UTF-8-BOM. Latin-1 wird toleriert, kann aber Sonderzeichen korrumpieren. Im Zweifel in UTF-8 konvertieren: `iconv -f latin-1 -t utf-8 input.csv > input_utf8.csv`
+- [ ] **Spaltennamen:** Spalten die automatisch erkannt werden (Aliase — Gross/Kleinschreibung egal):
+
+| Locationer-Feld | Erkannte Spaltennamen |
+|---|---|
+| `title` | title, titel, name, subject |
+| `description` | description, beschreibung, desc, text, caption, legende |
+| `country` | country, land, pays, pais, country_name |
+| `city` | city, stadt, ville, adresse, address, ort, place |
+| `region` | **Region** (empfohlen), kanton, canton, bundesland, state, province, provincia, département, county |
+
+  → Wenn eine Spalte anders heisst: **umbenennen zu einem der obigen Aliase**, empfohlen ist immer `Region` für Region/Kanton/Bundesland/State.
+
+- [ ] **Region-Spalte:** Falls bekannt (z.B. Kanton CH, Bundesland DE, State US) → Spalte `Region` mit vollen Namen befüllen (z.B. `"Graubünden"`, `"Bavaria"`, `"California"`), **nicht** Abkürzungen. Diese Information verbessert die Disambiguierung erheblich.
+- [ ] **Beschreibungen bereinigen:** Wikimedia-Markup (`de|1=Text|1=Text`) wird automatisch bereinigt. Andere proprietäre Formate müssen manuell bereinigt werden.
+
+### .env konfigurieren
+
+- [ ] **ANTHROPIC_API_KEY** — Pflicht
+- [ ] **GEO_DB_PATH** — Pfad zur GeoNames SQLite (4.5 GB)
+- [ ] **COLLECTION_BBOX** — Wichtigste sammlungsspezifische Einstellung:
+
+```
+# Format: min_lat,max_lat,min_lon,max_lon
+# Regel: grosszügig genug für alle legitimen Treffer, eng genug um falsche Weltregionen auszuschliessen
+
+COLLECTION_BBOX=43.0,62.0,-5.0,20.0    # Schweiz + Europa
+# COLLECTION_BBOX=18.0,38.0,-5.0,40.0  # Nordafrika
+# COLLECTION_BBOX=25.0,50.0,60.0,90.0  # Zentralasien
+# COLLECTION_BBOX=                       # Global (kein Filter)
+```
+
+  Greift nur wenn Haiku kein Land erkennt (`country=""`). Bilder mit bekanntem Land (`country="Egypt"`) werden immer korrekt geocodiert.
+
+- [ ] **NOMINATIM_USER_AGENT** — eigene E-Mail eintragen (Pflicht für public Nominatim)
+
+### Testlauf
+
+```bash
+# Erst 20 Zeilen testen
+python -m v4 meine_sammlung.csv --limit 20 --mode debug
+
+# Karte anschauen — sind die Treffer plausibel?
+# Dann vollen Lauf starten mit caffeinate (verhindert Sleep bei Nachtläufen):
+caffeinate -i python -m v4 meine_sammlung.csv
+```
+
+### Optionale Verbesserungen nach erstem Lauf
+
+- [ ] QA-Karte reviewen → offensichtliche Fehler als Overrides erfassen
+- [ ] Score-0-Treffer anschauen → ev. Overrides für bekannte Problemnamen (Grenzgipfel, historische Namen)
+- [ ] Norm-Overrides für systematische Haiku-Fehler bei spezifischen Ortsnamen
+
+---
+
 ## 1. Lizenz und Nutzungsrechte (TGN)
 
 Getty TGN wird unter **ODC-By** (Open Data Commons Attribution License) veröffentlicht. Für die Nutzung im Locationer / Pictomap gilt:
@@ -47,6 +109,9 @@ TGN liefert ausschliesslich **Koordinaten** wenn Step 2.5 gewinnt. Koordinaten s
 ```bash
 source venv/bin/activate
 python -m v4 v4/TestFile.csv
+
+# Nachtlauf ohne Sleep-Unterbruch:
+caffeinate -i python -m v4 meine_sammlung.csv
 ```
 
 ---
@@ -111,15 +176,19 @@ Wenn eine Input-Spalte denselben Namen wie eine Geocoding-Spalte trägt (z.B. `T
 
 `Periode` — immer im PCTM-Format. Haiku extrahiert den Zeitraum aus Description + `EXTRA_DESC_COLS`, die Pipeline normalisiert ihn. Trennzeichen Jahr/Monat = `:`, Trennzeichen Start/Ende = `-`.
 
-| Input (Haiku-Rohwert) | Periode (PCTM) |
-|---|---|
-| `1908` | `1908` |
-| `circa 1890` | `1890` |
-| `1914-1918` | `1914-1918` |
-| `1910-03` | `1910:03` |
-| `1914-18` | `1914-1918` |
-| `1910-03-1920-05` | `1910:03-1920:05` |
-| nicht erwähnt | *(leer)* |
+| Input (Haiku-Rohwert) | Periode (PCTM) | Regel |
+|---|---|---|
+| `1908` | `1908` | Einzeljahr |
+| `circa 1890` | `1890` | Qualifier wird gestripped |
+| `1914-1918` | `1914-1918` | Jahres-Range (4+4 Stellen) |
+| `1914-18` | `1914-1918` | Kurzjahr (2 Stellen, >12 → Jahres-Range) |
+| `1910-03` | `1910:03` | Monat (2 Stellen, ≤12 → Monat, nicht 1910-1903!) |
+| `1947-09` | `1947:09` | idem — 09 ≤ 12 → September, nicht 1947-1909 |
+| `1947-9` | `1947:09` | 1 Stelle → immer Monat |
+| `1910-03-1920-05` | `1910:03-1920:05` | Monats-Range |
+| nicht erwähnt | *(leer)* | kein Halluzinieren |
+
+**Kritische Unterscheidung:** `1947-09` → `1947:09` (September 1947), nicht `1947-1909`. Zweistellige Werte ≤ 12 werden immer als Monat interpretiert. Zweistellige Werte >12 als Kurzjahr (`1914-18` → `1914-1918`).
 
 `Deviation_km` erscheint nur wenn `lat_true`/`lon_true` im Input vorhanden sind.
 
@@ -235,13 +304,15 @@ Step 1   geo_cache
            Bei X/Y-Stadtnamen (z.B. "Bergün/Bravuogn") werden beide Teile versucht
            Falls kein PPL-Eintrag: find_precise(city) → near aus geogr. Feature
            Falls near=None aber region bekannt: admin1-Zentroid als Fallback-Anker
+           city_radius: dynamisch nach Population (Flerden 2 km / Zürich 15 km / Tokyo 25 km)
+           geo_feature: Pässe, Schluchten, Berge etc. → 4–6× grösserer Radius
            Alle Treffer geprüft gegen Länder-Bounding-Box (_COUNTRY_BBOX, ±1°)
            Wenn country unbekannt: COLLECTION_BBOX als Fallback-Schranke
            ↓
 Step 2   GEO DB precise (GeoNames)
            find_precise(location, country_code, near, admin1_hint)
            Typen: S (Spots), T (Terrain), H (Hydrography), V (Vegetation), L (Locality)
-           50-km-Check: Treffer > 50 km vom Stadtzentrum → verwerfen
+           Radius: max(city_radius × 4, 20 km) — geo_feature: max(city_radius × 6, 15 km)
            Bbox-Check: Treffer ausserhalb Landesgrenzen → verwerfen
            Disambiguierung: admin1_hint + Alt-Name-Anzahl als Fame-Proxy
            → Score 5 (kein Fallback)
@@ -249,7 +320,7 @@ Step 2   GEO DB precise (GeoNames)
 Step 2.5 TGN (Getty Thesaurus of Geographic Names)
            Nur wenn Phase 1c eine tgn_id gesetzt hat
            get_by_id(tgn_id) → direkter ID-Lookup, kein Netzwerk
-           50-km-Check + Bbox-Check wie Step 2
+           Radius + Bbox-Check wie Step 2
            → Score 5 (kein Fallback)
            ↓ miss
 Step 3   Nominatim (OpenStreetMap)
@@ -257,9 +328,10 @@ Step 3   Nominatim (OpenStreetMap)
            Generische Titel ohne location_type → überspringen (→ Step 4)
            Query: location + region + country wenn kein Stadtanker (verhindert
              falsche Homonym-Treffer, z.B. "Flüelastrasse" in Zürich statt GR)
-           Proximity-Check:
-             - Stadtanker vorhanden: Treffer > 5 km → verwerfen, retry
+           Proximity-Check mit city_radius (geo_feature: 4× erweitert):
+             - Stadtanker vorhanden: Treffer > city_radius → verwerfen, retry
              - Nur admin1-Zentroid: Treffer > 100 km → verwerfen, retry
+           Bbox-Check: Treffer ausserhalb Landesgrenzen → verwerfen
            Précis-Treffer → Score 4
            ↓ miss oder nicht präzis
 Step 4   GEO DB city (Stadtzentrum)
@@ -276,9 +348,44 @@ Step 5   Nominatim city-only (für Länder mit schlechter GEO-DB-Abdeckung)
 →          Score 0 — nicht gefunden
 ```
 
+### Geographic Feature Detection
+
+`_is_geo_feature(location)` erkennt natürliche/geografische Features anhand von Keywords in `record.location` (Deutsch/Französisch/Italienisch/Englisch/Romanisch):
+
+- **Pässe:** pass, passo, joch, col, sattel, forcella
+- **Gipfel:** horn, gipfel, spitze, pic, piz, pizzo, monte, peak, summit, kulm
+- **Schluchten:** schlucht, tobel, klamm, klus, gorge, canyon, gola
+- **Täler:** tal, val, valle, vallée, valley
+- **Gewässer:** see, lac, lago, lake, bach, fluss, torrent
+- **Gletscher:** gletscher, glacier, ghiacciaio, firn
+- u.a. alp, grat, fels, moos, fjord
+
+Erkannte geo_features erhalten 4–6× grössere Proximity-Radien als Gebäude der gleichen Stadt.
+
 ### Generische Titel (Skip-Logik)
 
 Wenn `location` leer ist, kein `location_type` gesetzt wurde, und der Titel ausschliesslich aus generischen Wörtern besteht, wird Nominatim übersprungen. Beispiele: `ortsteilansicht`, `panorama`, `portrait`, `landschaft`, `dorfbild`. Der Record landet direkt bei Step 4. Ist `location_type` gesetzt (z.B. `"Kirche"`), wird Nominatim trotzdem aufgerufen — `location_type + city` ergibt einen brauchbaren Query.
+
+### Dynamischer City-Radius
+
+Der Proximity-Radius richtet sich nach der Stadtgrösse (aus GeoNames `population`):
+
+| Stadttyp | Beispiel | Radius | GeoNames-Radius |
+|---|---|---|---|
+| Weiler | Flerden (~150) | 2 km | 20 km |
+| Kleinstadt | Thusis (~3000) | 3 km | 20 km |
+| Regionalstadt | Chur (~36k) | 8 km | 32 km |
+| Grossstadt | Zürich (~415k) | 15 km | 60 km |
+| Metropole | Paris (~2.1M) | 25 km | 100 km |
+
+Geografische Features (Schluchten, Pässe, Berge, Seen — erkannt durch Keyword-Matching auf `location`) erhalten 4–6× mehr Radius, weil sie naturgemäss ausserhalb des Siedlungsgebiets liegen. Gebäude (Hotels, Kirchen, Brücken) bleiben beim engen Stadtradius.
+
+### Cache-Validierung
+
+Jeder Cache-Hit wird vor der Rückgabe gegen die aktuellen Checks validiert:
+1. **Bbox-Check** (Country oder Collection) — verwirft Pakistan/Vietnam-Altlasten
+2. **Proximity-Check** für Nominatim-Precise-Hits — verwirft Altlasten mit alten Thresholds
+3. **Fallback-Bypass** — wenn `location` bekannt ist und der Cache nur einen Fallback (Score 3) enthält, wird neu geocodiert damit Nominatim/GeoNames einen präzisen Treffer versuchen kann
 
 ### Region-Disambiguierung
 
@@ -372,6 +479,10 @@ python -m v4.overrides norm-remove "Avers"
 
 Norm-Overrides greifen nur wenn das entsprechende Feld im Haiku-Output leer ist (sie ergänzen, überschreiben nicht).
 
+### Override-Liste und Validierung
+
+Overrides werden ohne automatische Validierung zurückgegeben (kein Country-Check, kein Proximity-Check). Das ist bewusst — sie existieren genau für Fälle die die automatischen Checks brechen (z.B. Grenzgipfel, historische Namen). Die QA-Karte ist die Kontrollinstanz: ein falsch gesetzter Override fällt durch falsche Koordinaten oder Δ-Abweichung sofort auf.
+
 ---
 
 ## 8. TGN-Datenbank — Import
@@ -433,15 +544,32 @@ Bleibt leer wenn nicht gesetzt (Standardfall).
 
 ### COLLECTION_BBOX
 
-Geografischer Sammlungsschwerpunkt als Bounding Box `min_lat,max_lat,min_lon,max_lon`. Greift **ausschliesslich wenn Haiku kein Land erkennt** (`country=""`). Verhindert, dass Ergebnisse ausserhalb des Schwerpunktgebiets akzeptiert werden — unabhängig davon welche Datenquelle den Treffer liefert (GeoNames, TGN, Nominatim, City-Fallback).
+Der wichtigste sammlungsspezifische Parameter. Er erfüllt **zwei unabhängige Rollen**, beide greifen nur wenn `country=""` (Haiku hat kein Land erkannt):
 
-Wenn `country` bekannt ist, übernehmen die länderspezifischen Bounding Boxes (_COUNTRY_BBOX) die Kontrolle — `COLLECTION_BBOX` ist dann inaktiv.
+**Rolle 1 — Harter Filter:** Jeder Geocoding-Treffer (GeoNames, TGN, Nominatim) wird am Ende gegen die Bbox geprüft. Liegt er ausserhalb → verworfen. Verhindert z.B. dass "Badus" in den Pyrenäen landet wenn kein Land bekannt ist.
+
+**Rolle 2 — Geografischer Prior:** Das Bbox-Zentrum wird als Proximity-Hint an GeoNames übergeben. Bei global mehrdeutigen Namen (z.B. "Matterhorn" existiert in CH und in NZ) wird der Eintrag bevorzugt der dem Bbox-Zentrum am nächsten liegt — ohne dass ein Override nötig ist.
+
+Wenn `country` bekannt ist, greifen die länderspezifischen Bounding Boxes — `COLLECTION_BBOX` ist dann vollständig inaktiv. Bilder aus Ägypten, Südafrika oder Kanada werden korrekt geocodiert solange Haiku das Land erkennt.
+
+**Wie definiere ich die richtige Bbox?**
+
+Faustregel: die Bbox soll den **geografischen Schwerpunkt** der Sammlung abdecken — grosszügig genug für den Randbereich, eng genug um falsche Weltregionen auszuschliessen. Für eine Schweizer Sammlung mit etwas Nachbarländer-Abdeckung:
+
+```
+min_lat = südlichster legitimer Breitengrad (Sizilien? Nordafrika?)
+max_lat = nördlichster (Skandinavien?)
+min_lon = westlichster (Atlantik?)
+max_lon = östlichster (Türkei? Russland?)
+```
+
+Praktisch: QA-Karte öffnen, alle Score-0-Treffer ausserhalb Europa identifizieren. Die Bbox so eng setzen, dass diese ausgeschlossen sind, aber alle legitimen Treffer drin bleiben.
 
 | Sammlung | Empfohlener Wert | Abdeckung |
 |---|---|---|
-| ZIN (Schweiz + Nachbarländer) | `43.0,62.0,-5.0,20.0` | CH/DE/AT/FR/IT/NO + Westeuropa |
+| ZIN (Schweiz + Europa) | `43.0,62.0,-5.0,20.0` | CH/DE/AT/FR/IT/NO + Westeuropa |
 | Nordafrika | `18.0,38.0,-5.0,40.0` | Maghreb + Ägypten |
-| Global | *(leer lassen)* | kein Filter |
+| Global | *(leer lassen)* | kein Filter, nur Country-Bbox greift |
 
 ```
 # ZIN-Konfiguration:
@@ -497,14 +625,28 @@ Nominatim calls:           14
 
 ## 12. QA-Karte
 
-Nach jedem Lauf kann eine interaktive Leaflet-Karte generiert werden:
+Die Karte wird **automatisch nach jedem Lauf** generiert und im Browser geöffnet. Manueller Aufruf:
 
 ```bash
 python -m v4.map v4/ZIN_complete_geo.csv
-# → öffnet ZIN_complete_geo_map.html im Browser
 ```
 
-Marker sind nach Score eingefärbt (grün=5, hellgrün=4, orange=3, rot=2/0). Klick auf Marker zeigt Titel, City, Country, Score, Periode, Urheber, Δ-Abweichung und CSV-Zeilennummer.
+**Popup-Inhalt:** Titel, City, Country, Score, Periode, Urheber, Δ-Abweichung, CSV-Zeilennummer, klickbare Links (URL-Spalten automatisch erkannt).
+
+**QA-Annotationen:** Jedes Popup enthält:
+- ❌ **Fehler** — falsche Koordinaten, muss korrigiert werden
+- ⭐ **Wow** — explizit als korrekt verifiziert
+- Kommentarfeld — freier Text
+
+Button **⬇ CSV herunterladen** (unten rechts) exportiert alle Annotationen als `annotations_[Name]_[Datum].csv`:
+
+```
+csv_zeile, title, lat, lon, fehler, wow, kommentar, reviewer, timestamp
+```
+
+Mehrere Personen annotieren lokal je eine eigene CSV, die danach zusammengeführt werden.
+
+**Marker-Farben:** grün=Score 5, hellgrün=4, orange=3, hellrot=2, rot=0
 
 ---
 
