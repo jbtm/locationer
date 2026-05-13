@@ -228,8 +228,10 @@ class GeoStack:
                 (_within_country_bbox(cached.lat, cached.lon, cc) if cc else True)
                 and (cc or _within_collection_bbox(cached.lat, cached.lon, self.collection_bbox))
             )
-            # Don't serve a city fallback from cache when a specific location is known —
-            # re-geocode so Nominatim/GeoNames gets a chance to find the precise result.
+            # Re-geocode a cached city fallback when a specific location is known —
+            # gives Nominatim/GeoNames a chance to find the precise result.
+            # Exception: skip re-geocode if the input explicitly marks location as unknown
+            # (those entries produce Score 0 by design and should stay cached).
             if bbox_ok and cached.fallback and record.location:
                 bbox_ok = False  # force re-geocode
             # Proximity check for Nominatim precise results: enforce dynamic city radius.

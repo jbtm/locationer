@@ -203,16 +203,17 @@ def _dev_str(geo: GeoResult, true: tuple | None) -> str:
 
 
 def _human(i: int, total: int, rec: NormalizedRecord, geo: GeoResult,
-           true: tuple | None = None, google_total: int = 0):
+           true: tuple | None = None, google_total: int = 0, unknown_loc: bool = False):
     score_label = {5: "●●●●●", 4: "●●●●○", 3: "●●●○○", 2: "●●○○○", 0: "○○○○○"}.get(
         geo.quality_score, str(geo.quality_score)
     )
     loc = "/".join(filter(None, [rec.country, rec.city])) or "?"
     fb = " (city fallback)" if geo.fallback else ""
     src = geo.source if geo.source != "none" else "—"
+    unk = "  [Lok.unsicher]" if unknown_loc else ""
     title = rec.title[:48].ljust(49)
     g_str = f"  [N:{google_total}]" if google_total else ""
-    print(f"[{i:>5}/{total}] {title}  {loc:<28}  {score_label}  {src}{fb}{_dev_str(geo, true)}{g_str}")
+    print(f"[{i:>5}/{total}] {title}  {loc:<28}  {score_label}  {src}{fb}{_dev_str(geo, true)}{unk}{g_str}")
 
 
 def _debug(i: int, total: int, rec: NormalizedRecord, geo: GeoResult, true: tuple | None = None):
@@ -309,8 +310,9 @@ def _process_chunk(
         dev_km = _haversine_km(geo.lat, geo.lon, true[0], true[1]) if (true and geo.lat is not None) else None
         region = _get_region(geo_db, rec, geo)
 
+        unknown = _has_unknown_location(row)
         if mode == "human":
-            _human(i, total, rec, geo, true, google_total=geostack.ext_count)
+            _human(i, total, rec, geo, true, google_total=geostack.ext_count, unknown_loc=unknown)
         else:
             _debug(i, total, rec, geo, true)
 
