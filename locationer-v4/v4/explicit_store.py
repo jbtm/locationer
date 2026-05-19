@@ -32,6 +32,7 @@ class ExplicitStore:
                 pattern    TEXT PRIMARY KEY,  -- case-insensitive substring match on raw row text
                 city       TEXT,              -- set city to this value (null = don't touch)
                 country    TEXT,              -- set country to this value (null = don't touch)
+                location   TEXT,              -- set location to this value (null = don't touch)
                 note       TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
@@ -81,30 +82,42 @@ class ExplicitStore:
     # ── norm_overrides ────────────────────────────────────────────────────────
 
     def match_norm(self, raw_text: str) -> Optional[dict]:
-        """Return {city, country} corrections if any pattern is found in raw_text."""
+        """Return {city, country, location} corrections if any pattern is found in raw_text.
+
+        Longer patterns are checked first so specific entries (e.g. 'Lenzerheide')
+        win over shorter ones (e.g. 'Lenz').
+        """
         text_lower = raw_text.lower()
-        for pat, city, country, _ in self.conn.execute(
-            "SELECT pattern, city, country, note FROM norm_overrides"
-        ).fetchall():
+        rows = sorted(
+            self.conn.execute(
+                "SELECT pattern, city, country, location, note FROM norm_overrides"
+            ).fetchall(),
+            key=lambda r: -len(r[0]),
+        )
+        for pat, city, country, location, _ in rows:
             if pat.lower() in text_lower:
                 result = {}
                 if city:
                     result["city"] = city
                 if country:
                     result["country"] = country
+                if location:
+                    result["location"] = location
                 return result if result else None
         return None
 
-    def add_norm(self, pattern: str, city: str = "", country: str = "", note: str = ""):
+    def add_norm(self, pattern: str, city: str = "", country: str = "",
+                 location: str = "", note: str = ""):
         self.conn.execute(
-            "INSERT OR REPLACE INTO norm_overrides (pattern,city,country,note) VALUES (?,?,?,?)",
-            (pattern, city or None, country or None, note),
+            "INSERT OR REPLACE INTO norm_overrides "
+            "(pattern,city,country,location,note) VALUES (?,?,?,?,?)",
+            (pattern, city or None, country or None, location or None, note),
         )
         self.conn.commit()
 
     def list_norm(self) -> list[tuple]:
         return self.conn.execute(
-            "SELECT pattern, city, country, note FROM norm_overrides ORDER BY created_at"
+            "SELECT pattern, city, country, location, note FROM norm_overrides ORDER BY created_at"
         ).fetchall()
 
     def remove_norm(self, pattern: str) -> bool:

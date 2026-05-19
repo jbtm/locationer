@@ -63,10 +63,11 @@ def main():
     sub.add_parser("norm-list", help="List norm overrides")
 
     p_nadd = sub.add_parser("norm-add",
-        help="Add a Phase-1 city/country correction (substring match on raw input)")
+        help="Add a Phase-1 city/country/location correction (substring match on raw input)")
     p_nadd.add_argument("pattern", help="substring to match in raw row text (case-insensitive)")
-    p_nadd.add_argument("--city",    default="", help="Set city to this value")
-    p_nadd.add_argument("--country", default="", help="Set country to this value")
+    p_nadd.add_argument("--city",     default="", help="Set city to this value")
+    p_nadd.add_argument("--country",  default="", help="Set country to this value")
+    p_nadd.add_argument("--location", default="", help="Set location to this value")
     p_nadd.add_argument("note", nargs="?", default="")
 
     p_nrm = sub.add_parser("norm-remove", help="Remove a norm override")
@@ -92,13 +93,13 @@ def main():
         if not rows:
             print("Keine Norm-Overrides.")
         else:
-            print(f"{'Pattern':<30} {'city':<20} {'country':<15} Notiz")
-            print("─" * 90)
-            for pat, city, country, note in rows:
-                print(f"{pat:<30} {city or '':20s} {country or '':15s} {note or ''}")
+            print(f"{'Pattern':<30} {'city':<20} {'country':<15} {'location':<25} Notiz")
+            print("─" * 110)
+            for pat, city, country, location, note in rows:
+                print(f"{pat:<30} {city or '':20s} {country or '':15s} {location or '':25s} {note or ''}")
     elif args.cmd == "norm-add":
-        store.add_norm(args.pattern, args.city, args.country, args.note)
-        print(f"Norm-Override: {args.pattern!r} → city={args.city!r} country={args.country!r}")
+        store.add_norm(args.pattern, args.city, args.country, args.location, args.note)
+        print(f"Norm-Override: {args.pattern!r} → city={args.city!r} country={args.country!r} location={args.location!r}")
     elif args.cmd == "norm-remove":
         print("Gelöscht." if store.remove_norm(args.pattern) else "Nicht gefunden.")
 

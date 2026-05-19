@@ -113,7 +113,8 @@ _REGION_CODES = {
 def _normalize_city(city: str) -> str:
     """Strip postal codes, canton codes and similar clutter from city strings.
 
-    Examples: 'Chur GR' → 'Chur', '7000 Chur' → 'Chur', 'Kilchberg (ZH)' → 'Kilchberg'
+    Examples: 'Chur GR' → 'Chur', '7000 Chur' → 'Chur', 'Kilchberg (ZH)' → 'Kilchberg',
+              'Kanton Luzern' → 'Luzern', 'Kt. Bern' → 'Bern'
     """
     if not city:
         return city
@@ -122,6 +123,10 @@ def _normalize_city(city: str) -> str:
     city = re.sub(r"^(?:[A-Z]{1,3}-?)?\d{4,5}\s+", "", city)
     # Remove trailing "(ZH)" style
     city = re.sub(r"\s*\([A-Z]{2}\)\s*$", "", city)
+    # Strip "Kanton " / "Kt. " / "Kt " prefix: "Kanton Luzern" → "Luzern"
+    city = re.sub(r"^Kt\.?\s+", "", city, flags=re.IGNORECASE)
+    city = re.sub(r"^Kanton\s+", "", city, flags=re.IGNORECASE)
+    city = re.sub(r"^Canton\s+", "", city, flags=re.IGNORECASE)
     # Remove trailing canton/state code: "Chur GR"
     parts = city.split()
     if len(parts) >= 2 and parts[-1].upper() in _REGION_CODES:
@@ -272,13 +277,16 @@ class InputNormalizer:
             m = re.search(r"\[.*\]", raw, re.DOTALL)
             data = json.loads(m.group()) if m else [{}] * len(batch)
 
+        # Pad to batch length: Haiku occasionally omits entries (e.g. for
+        # rows whose fields are all empty). Silent drop would misalign every
+        # subsequent row in the output CSV.
         return [
             {
-                "periode": item.get("periode"),
-                "urheber": item.get("urheber"),
-                "technik": item.get("technik"),
+                "periode": (data[k] if k < len(data) else {}).get("periode"),
+                "urheber": (data[k] if k < len(data) else {}).get("urheber"),
+                "technik": (data[k] if k < len(data) else {}).get("technik"),
             }
-            for item in data
+            for k in range(len(batch))
         ]
 
     def _call_ai(self, batch: list[tuple[int, str, dict[str, str]]]) -> list[NormalizedRecord]:
@@ -307,8 +315,11 @@ class InputNormalizer:
             m = re.search(r"\[.*\]", raw, re.DOTALL)
             data = json.loads(m.group()) if m else [{}] * len(batch)
 
+        # Pad to batch length so a short Haiku response can't misalign
+        # downstream rows (e.g. an empty-input row → Haiku skips → drop).
         records = []
-        for item, (_, _, mapped) in zip(data, batch):
+        for k, (_, _, mapped) in enumerate(batch):
+            item = data[k] if k < len(data) else {}
             ai_city    = str(item.get("city", "")).strip()
             input_city = str(mapped.get("city", "")).strip()
             # If AI city has no substring relation to the input value, the AI likely

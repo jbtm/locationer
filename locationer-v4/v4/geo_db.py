@@ -97,6 +97,7 @@ class GeoDatabase:
         country_code: Optional[str] = None,
         near: Optional[tuple[float, float]] = None,
         admin1_hint: Optional[str] = None,
+        prefer_admin3: Optional[str] = None,
     ) -> Optional[sqlite3.Row]:
         """
         Find a non-city/admin feature by name.
@@ -134,11 +135,25 @@ class GeoDatabase:
                     (norm,) + cc_params,
             ).fetchall())
 
+        # Hard admin1 filter — analogous to find_city. When the caller asserts
+        # a region, candidates outside that country+admin1 are rejected, even
+        # if proximity to `near` would otherwise favour them. Prevents picking
+        # a wrong-canton match for ambiguous location names (e.g. "Flühmatt" in
+        # canton SO when the photo is from canton OW).
+        if admin1_hint and country_code:
+            candidates = [
+                c for c in candidates
+                if c["country_code"] == country_code and c["admin1"] == admin1_hint
+            ]
+
         if not candidates:
             return None
 
         if near:
-            candidates.sort(key=lambda r: _dist_km(r["lat"], r["lon"], near[0], near[1]))
+            candidates.sort(key=lambda r: (
+                0 if (prefer_admin3 and r["admin3"] == prefer_admin3) else 1,
+                _dist_km(r["lat"], r["lon"], near[0], near[1]),
+            ))
         elif country_code:
             # No proximity anchor: rank by same-country, then admin1 match, then
             # alt_name count (proxy for how well-known the place is).
@@ -201,8 +216,10 @@ class GeoDatabase:
 
         Collects candidates from direct name and alt-name searches (with and without
         country filter), then picks the best by feature-code priority and population.
-        When admin1_hint is provided (canton/state code), it is used as a tiebreaker
-        to disambiguate same-named places in different regions.
+        When admin1_hint is provided, it acts as a hard filter on same-country
+        candidates — analogous to the country BBox check. This prevents picking
+        a same-named place in the wrong canton/state (e.g. Lugnez/JU when the
+        caller asserts Graubünden).
         """
         norms = _ascii_norm_variants(name)
         candidates: list[sqlite3.Row] = []
@@ -231,6 +248,15 @@ class GeoDatabase:
                     (norm,) + cc_params,
                 ).fetchall())
 
+        # Hard admin1 filter — analogous to country BBox. When the caller
+        # asserts a region, candidates must live in that country+admin1; any
+        # foreign-country match (e.g. Bern/KS/US when hint is CH/GR) is rejected.
+        if admin1_hint and country_code:
+            candidates = [
+                c for c in candidates
+                if c["country_code"] == country_code and c["admin1"] == admin1_hint
+            ]
+
         # ADM3/ADM4 fallback
         same_country = [c for c in candidates if not country_code or c["country_code"] == country_code]
         if not same_country:
@@ -245,6 +271,8 @@ class GeoDatabase:
                         LIMIT 5""",
                     (norm,) + cc_params,
                 ).fetchall()
+                if admin1_hint and country_code:
+                    adm = [r for r in adm if r["admin1"] == admin1_hint]
                 if adm:
                     adm.sort(key=lambda r: (
                         0 if (admin1_hint and r["admin1"] == admin1_hint) else 1,
@@ -264,6 +292,8 @@ class GeoDatabase:
                     ).fetchall()
                     for r in cc_rows:
                         if r["geoname_id"] not in seen_ids:
+                            if admin1_hint and r["admin1"] != admin1_hint:
+                                continue
                             candidates.append(r)
                     if not candidates:
                         alt_rows = self.conn.execute(
@@ -274,12 +304,16 @@ class GeoDatabase:
                         ).fetchall()
                         for r in alt_rows:
                             if r["geoname_id"] not in seen_ids:
+                                if admin1_hint and r["admin1"] != admin1_hint:
+                                    continue
                                 candidates.append(r)
                     if not candidates:
                         adm_s = self.conn.execute(
                             "SELECT * FROM geofeature WHERE ascii_name_norm=? AND feature_class='A' AND feature_code IN ('ADM3','ADM4') AND country_code=? LIMIT 5",
                             (norm_s, country_code),
                         ).fetchall()
+                        if admin1_hint:
+                            adm_s = [r for r in adm_s if r["admin1"] == admin1_hint]
                         if adm_s:
                             return adm_s[0]
                 if candidates:
@@ -305,6 +339,43 @@ class GeoDatabase:
             (country_code, admin1_code),
         ).fetchone()
         return (row["lat"], row["lon"]) if row else None
+
+    def find_admin1_radius_km(self, country_code: str, admin1_code: str,
+                              centroid: "tuple[float, float]") -> float:
+        """Estimate admin1 spatial radius as max distance from centroid to any
+        populated place in that region, plus a 20% buffer.
+
+        Result is memoised per (country_code, admin1_code) so repeated calls
+        within a pipeline run are free.
+        """
+        cache_key = (country_code, admin1_code)
+        if not hasattr(self, "_admin1_radius_cache"):
+            self._admin1_radius_cache: dict = {}
+        if cache_key in self._admin1_radius_cache:
+            return self._admin1_radius_cache[cache_key]
+
+        rows = self.conn.execute(
+            "SELECT lat, lon FROM geofeature "
+            "WHERE feature_class='P' AND country_code=? AND admin1=?",
+            (country_code, admin1_code),
+        ).fetchall()
+
+        if not rows:
+            radius = 50.0
+        else:
+            clat, clon = centroid
+            max_dist = max(
+                math.sqrt(
+                    (math.radians(r["lat"] - clat) * 6371) ** 2 +
+                    (math.radians(r["lon"] - clon) * 6371 *
+                     math.cos(math.radians(clat))) ** 2
+                )
+                for r in rows
+            )
+            radius = max(max_dist * 1.2, 20.0)
+
+        self._admin1_radius_cache[cache_key] = radius
+        return radius
 
     def find_region_name(self, country_code: str, admin1_code: str) -> str:
         """Return the ADM1 (state/province/canton) name for a country + admin1 code."""

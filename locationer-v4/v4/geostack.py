@@ -1,4 +1,5 @@
 import math
+import re
 from typing import Optional
 
 from .cache import Cache
@@ -207,6 +208,11 @@ class GeoStack:
         self.ext_count = 0  # Nominatim calls
 
     def geocode(self, record: NormalizedRecord) -> GeoResult:
+        # Strip canton/region prefixes that may survive in old norm-cache hits
+        # (e.g. "Kanton Luzern" → "Luzern"). _normalize_city handles new records;
+        # this ensures stale cached records are treated correctly too.
+        record.city = re.sub(r"^(?:Kanton|Kt\.?|Canton)\s+", "", record.city or "",
+                              flags=re.IGNORECASE).strip()
         hint = record.location or record.title
         cache_key = f"{hint}|{record.city}|{record.country}"
 
@@ -234,11 +240,13 @@ class GeoStack:
             # (those entries produce Score 0 by design and should stay cached).
             if bbox_ok and cached.fallback and record.location:
                 bbox_ok = False  # force re-geocode
-            # Proximity check for Nominatim precise results: enforce dynamic city radius.
-            # Catches stale cache entries built with old fixed thresholds.
+            # Proximity check for all Nominatim results (precise and fallback).
+            # Catches stale entries where Nominatim returned a canton/region centroid
+            # instead of the actual city centre (e.g. "Kanton Luzern" → Hinterland).
             prox_ok = True
-            if bbox_ok and not cached.fallback and cached.source == "nominatim" and record.city and self.geo_db:
-                city_row_c = self.geo_db.find_city(record.city, cc)
+            if bbox_ok and cached.source == "nominatim" and self.geo_db:
+                lookup = record.city or cached.match_name
+                city_row_c = self.geo_db.find_city(lookup, cc) if lookup else None
                 if city_row_c:
                     dist = _dist_km(cached.lat, cached.lon, city_row_c["lat"], city_row_c["lon"])
                     prox_ok = dist <= _city_radius_km(city_row_c)
@@ -284,7 +292,7 @@ class GeoStack:
             # Use collection_center as proximity hint so globally ambiguous names
             # (e.g. "Matterhorn") resolve to the instance nearest the collection area.
             city_near_hint = collection_center
-            geo_feat = self.geo_db.find_precise(record.city, country_code, near=city_near_hint)
+            geo_feat = self.geo_db.find_precise(record.city, country_code, near=city_near_hint, admin1_hint=admin1_hint)
             if geo_feat:
                 near = (geo_feat["lat"], geo_feat["lon"])
                 geo_feat_city = geo_feat  # keep for Score 3 fallback
@@ -312,27 +320,42 @@ class GeoStack:
             city_q = " ".join(filter(None, [record.city, record.country]))
             nm_city = self.nominatim.search(city_q)
             if nm_city:
-                self.ext_count += 1
-                near = (nm_city["lat"], nm_city["lon"])
-                nm_city_result = nm_city
-                dbg.append(f"city anchor via Nominatim: {nm_city['name']}")
-                # Validate city against country
-                if country_code and not _within_country_bbox(near[0], near[1], country_code):
-                    dbg.append(f"Nominatim city anchor rejected (outside {country_code} bbox)")
-                    near = None
-                    nm_city_result = None
+                # Reject administrative boundaries — they're canton/region centroids,
+                # not city centres (e.g. "Kanton Luzern" → Hinterland polygon centroid).
+                if nm_city.get("place_type", "").lower() == "administrative":
+                    dbg.append(f"Nominatim city anchor rejected (administrative boundary): {nm_city['name']}")
+                else:
+                    self.ext_count += 1
+                    near = (nm_city["lat"], nm_city["lon"])
+                    nm_city_result = nm_city
+                    dbg.append(f"city anchor via Nominatim: {nm_city['name']}")
+                    # Validate city against country
+                    if country_code and not _within_country_bbox(near[0], near[1], country_code):
+                        dbg.append(f"Nominatim city anchor rejected (outside {country_code} bbox)")
+                        near = None
+                        nm_city_result = None
 
-        # Fallback anchor: admin1 centroid when city is unknown but region is known.
-        # Used for looser proximity validation of Nominatim/GeoNames results.
+        # admin1 centroid: used as proximity anchor when no city is known, and as
+        # a region-level sanity check for Nominatim Score-4 results regardless.
         admin1_near = None
-        if near is None and admin1_hint and self.geo_db:
+        if admin1_hint and self.geo_db:
             admin1_near = self.geo_db.find_admin1_centroid(country_code, admin1_hint)
-            if admin1_near:
+            if admin1_near and near is None:
                 dbg.append(f"admin1 centroid anchor: {admin1_near[0]:.3f}/{admin1_near[1]:.3f} ({admin1_hint})")
 
         # ── Step 3: GEO DB precise ────────────────────────────────────────────
+        # For non-geographic features (buildings, named places within a town),
+        # prefer candidates in the same municipality as the city anchor.
+        # Geo-features (peaks, glaciers, passes) can legitimately lie outside
+        # the city's commune and are not constrained.
+        prefer_admin3 = (
+            city_row["admin3"]
+            if (city_row and not geo_feature and city_row["admin3"])
+            else None
+        )
         if record.location and self.geo_db:
-            row = self.geo_db.find_precise(record.location, country_code, near=near, admin1_hint=admin1_hint)
+            row = self.geo_db.find_precise(record.location, country_code, near=near,
+                                           admin1_hint=admin1_hint, prefer_admin3=prefer_admin3)
             if row:
                 # Primary check: result must be from the expected country.
                 # This catches world-wide GeoNames expansions that land in the wrong country
@@ -341,7 +364,7 @@ class GeoStack:
                     dbg.append(f"GEO DB precise {row['name']!r} rejected (country {row['country_code']} ≠ {country_code})")
                     row = None
                 dist = _dist_km(row["lat"], row["lon"], near[0], near[1]) if (near and row) else 0
-                geo_radius = max(city_radius * (6 if geo_feature else 4), 20 if not geo_feature else 15)
+                geo_radius = max(city_radius * (6 if geo_feature else 2), 15 if geo_feature else 5)
                 if row and near and dist > geo_radius:
                     dbg.append(f"GEO DB precise {row['name']!r} rejected ({dist:.0f} km > {geo_radius:.0f} km)")
                 elif row and country_code and not _within_country_bbox(row["lat"], row["lon"], country_code):
@@ -433,6 +456,11 @@ class GeoStack:
                         anchor_label = "city" if near else f"{admin1_hint} centroid"
                         dbg.append(f"Nominatim precise hit {nm['name']!r} rejected ({dist:.0f} km from {anchor_label})")
                         nm2 = self.nominatim.search(query)
+                        if nm2 and nm2.get("precise"):
+                            dist2 = _dist_km(nm2["lat"], nm2["lon"], effective_near[0], effective_near[1])
+                            if dist2 > threshold:
+                                dbg.append(f"Nominatim retry {nm2['name']!r} also rejected ({dist2:.0f} km)")
+                                nm2 = None
                         nm = nm2
                 if nm:
                     ext_result = {**nm, "source": "nominatim"}
@@ -451,7 +479,16 @@ class GeoStack:
             elif not country_code and not _within_collection_bbox(ext_result["lat"], ext_result["lon"], self.collection_bbox):
                 dbg.append(f"Nominatim precise {ext_result['name']!r} rejected (outside collection bbox)")
                 ext_result = None
-            else:
+            elif admin1_near and admin1_hint and country_code and self.geo_db:
+                dist_a1 = _dist_km(ext_result["lat"], ext_result["lon"], admin1_near[0], admin1_near[1])
+                a1_radius = self.geo_db.find_admin1_radius_km(country_code, admin1_hint, admin1_near)
+                if dist_a1 > a1_radius:
+                    dbg.append(
+                        f"Nominatim precise {ext_result['name']!r} rejected "
+                        f"(region dist {dist_a1:.0f} km > {a1_radius:.0f} km)"
+                    )
+                    ext_result = None
+            if ext_result:
                 result = GeoResult(
                     lat=ext_result["lat"], lon=ext_result["lon"], quality_score=4,
                     fallback=False, source=ext_result["source"],

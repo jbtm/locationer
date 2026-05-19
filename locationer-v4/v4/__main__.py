@@ -7,7 +7,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(".env")
+load_dotenv(".env.local")
 
 import pandas as pd
 
@@ -145,13 +146,28 @@ def _true_coords(row: dict) -> tuple[float, float] | None:
 
 
 def _get_region(geo_db: "GeoDatabase | None", rec: NormalizedRecord, geo: GeoResult) -> str:
-    """Look up ADM1 (canton/state/province) from the city in the normalized record."""
-    if geo_db is None or geo.lat is None or not rec.city:
-        return ""
-    country_code = geo_db.country_to_code(rec.country)
+    """Resolve a canonical ADM1 name for the output Region column.
+
+    Trusts rec.region (from input column or Haiku) when set — normalizes it
+    via region_to_admin1 + find_region_name for the canonical spelling
+    (e.g. 'Graubünden' → 'Kanton Graubünden'). Falls back to deriving the
+    region from rec.city only when rec.region is empty.
+    """
+    if geo_db is None:
+        return rec.region or ""
+    country_code = geo_db.country_to_code(rec.country) if rec.country else None
+    if rec.region and country_code:
+        a1 = geo_db.region_to_admin1(country_code, rec.region)
+        if a1:
+            canonical = geo_db.find_region_name(country_code, a1)
+            if canonical:
+                return canonical
+        return rec.region
+    if geo.lat is None or not rec.city:
+        return rec.region or ""
     city_row = geo_db.find_city(rec.city, country_code)
     if not city_row or not city_row["admin1"]:
-        return ""
+        return rec.region or ""
     return geo_db.find_region_name(city_row["country_code"], city_row["admin1"])
 
 
@@ -283,17 +299,29 @@ def _process_chunk(
     normalized  = normalizer.normalize_batch(chunk_rows)
     metadata    = normalizer.extract_metadata_batch(chunk_rows)   # Phase 1b
 
-    # Apply norm_overrides: correct city/country extracted by Phase 1 AI
+    # Apply norm_overrides: correct city/country/location extracted by Phase 1 AI
     if geostack.overrides:
         for rec, row in zip(normalized, chunk_rows):
             correction = geostack.overrides.match_norm(_raw_text(row))
             if correction:
-                if "city" in correction and not rec.city:
+                # Country acts as both prerequisite and fill-in: skip the entire
+                # override if the record already has a different country.
+                target_country = correction.get("country", "")
+                if target_country and rec.country and \
+                        rec.country.lower() != target_country.lower():
+                    if mode == "debug":
+                        print(f"  [norm override] skipped (country {rec.country!r} ≠ {target_country!r})")
+                    continue
+                if "city" in correction:
                     rec.city = correction["city"]
                     if mode == "debug":
                         print(f"  [norm override] city → {correction['city']!r}")
-                if "country" in correction and not rec.country:
-                    rec.country = correction["country"]
+                if "location" in correction:
+                    rec.location = correction["location"]
+                    if mode == "debug":
+                        print(f"  [norm override] location → {correction['location']!r}")
+                if target_country and not rec.country:
+                    rec.country = target_country
 
     output_rows = []
     unknown_loc = 0
