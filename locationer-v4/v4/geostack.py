@@ -312,6 +312,11 @@ class GeoStack:
                     near = None
                     dbg.append(f"city anchor {anchor['name']!r} discarded (outside collection bbox)")
 
+        # admin1 centroid — computed early so it can validate the Nominatim city anchor.
+        admin1_near = None
+        if admin1_hint and self.geo_db:
+            admin1_near = self.geo_db.find_admin1_centroid(country_code, admin1_hint)
+
         # City has top priority: if GeoNames doesn't know the city at all,
         # ask Nominatim early so we have a reliable anchor for all subsequent
         # proximity checks AND a guaranteed Score 2 fallback at the end.
@@ -329,19 +334,25 @@ class GeoStack:
                     near = (nm_city["lat"], nm_city["lon"])
                     nm_city_result = nm_city
                     dbg.append(f"city anchor via Nominatim: {nm_city['name']}")
-                    # Validate city against country
+                    # Hard country check
                     if country_code and not _within_country_bbox(near[0], near[1], country_code):
                         dbg.append(f"Nominatim city anchor rejected (outside {country_code} bbox)")
                         near = None
                         nm_city_result = None
+                    # Hard region check: reject if outside expected admin1 radius
+                    elif admin1_near and admin1_hint and self.geo_db:
+                        dist_a1 = _dist_km(near[0], near[1], admin1_near[0], admin1_near[1])
+                        a1_radius = self.geo_db.find_admin1_radius_km(country_code, admin1_hint, admin1_near)
+                        if dist_a1 > a1_radius:
+                            dbg.append(
+                                f"Nominatim city anchor rejected (outside {admin1_hint}: "
+                                f"{dist_a1:.0f} km > {a1_radius:.0f} km)"
+                            )
+                            near = None
+                            nm_city_result = None
 
-        # admin1 centroid: used as proximity anchor when no city is known, and as
-        # a region-level sanity check for Nominatim Score-4 results regardless.
-        admin1_near = None
-        if admin1_hint and self.geo_db:
-            admin1_near = self.geo_db.find_admin1_centroid(country_code, admin1_hint)
-            if admin1_near and near is None:
-                dbg.append(f"admin1 centroid anchor: {admin1_near[0]:.3f}/{admin1_near[1]:.3f} ({admin1_hint})")
+        if admin1_near and near is None:
+            dbg.append(f"admin1 centroid anchor: {admin1_near[0]:.3f}/{admin1_near[1]:.3f} ({admin1_hint})")
 
         # ── Step 3: GEO DB precise ────────────────────────────────────────────
         # For non-geographic features (buildings, named places within a town),

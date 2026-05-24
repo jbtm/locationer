@@ -361,7 +361,7 @@ class GeoDatabase:
         ).fetchall()
 
         if not rows:
-            radius = 50.0
+            radius = 200.0  # conservative fallback for large/unknown regions
         else:
             clat, clon = centroid
             max_dist = max(
