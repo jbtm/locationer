@@ -34,24 +34,27 @@ PPL_PRIORITY = {"PPLC": 0, "PPLA": 1, "PPLA2": 2, "PPLA3": 3, "PPLA4": 4, "PPL":
 
 def ascii_norm(s: str) -> str:
     """Normalize to lowercase ASCII, stripping diacritics (NFD strip variant).
-    Matches GeoNames entries like Göschenen→'goschenen', Bürglen→'burglen'."""
+    Matches GeoNames entries like Göschenen→'goschenen', Bürglen→'burglen'.
+    '/' is converted to space to match the GeoNames builder convention
+    (e.g. 'Sils im Engadin/Segl' → 'sils im engadin segl')."""
     s = s.lower()
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    s = s.replace(".", "")
-    return s
+    s = s.replace(".", "").replace("/", " ")
+    return " ".join(s.split())
 
 
 def ascii_norm_de(s: str) -> str:
     """German umlaut expansion variant: ö→oe, ü→ue, ä→ae, ß→ss.
-    Matches GeoNames entries like Zürich→'zuerich', Schlössli→'schloessli'."""
+    Matches GeoNames entries like Zürich→'zuerich', Schlössli→'schloessli'.
+    '/' is converted to space (see ascii_norm)."""
     s = s.lower()
     for src, tgt in (("ö", "oe"), ("ü", "ue"), ("ä", "ae"), ("ß", "ss")):
         s = s.replace(src, tgt)
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    s = s.replace(".", "")
-    return s
+    s = s.replace(".", "").replace("/", " ")
+    return " ".join(s.split())
 
 
 def _ascii_norm_variants(s: str) -> list[str]:
