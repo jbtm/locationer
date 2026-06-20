@@ -12,6 +12,7 @@ ODbL licence — persistent caching allowed, commercial use allowed.
 """
 
 import hashlib
+import math
 import time
 from typing import Optional
 
@@ -111,6 +112,67 @@ class Nominatim:
         )
         self.cache_conn.commit()
         return self._make_result(lat, lon, display_name, place_type)
+
+    def search_bounded(self, query: str, lat: float, lon: float, radius_km: float) -> Optional[dict]:
+        """Search constrained to a viewbox around (lat, lon) with given radius.
+
+        Uses Nominatim's bounded=1 so results outside the viewbox are suppressed.
+        Cache key includes coordinates and radius so bounded and unbounded results
+        are stored independently.
+        """
+        key = _norm_key(f"bounded|{lat:.3f},{lon:.3f},{radius_km:.1f}|{query}")
+
+        row = self.cache_conn.execute(
+            "SELECT lat, lon, display_name, place_type FROM nominatim_cache WHERE key=?",
+            (key,),
+        ).fetchone()
+        if row is not None:
+            if row[0] is None:
+                return None
+            return self._make_result(row[0], row[1], row[2], row[3])
+
+        elapsed = time.time() - self._last_call
+        if elapsed < 1.0 and self.base_url.startswith("https://nominatim.openstreetmap.org"):
+            time.sleep(1.0 - elapsed)
+
+        self.call_count += 1
+        self._last_call = time.time()
+
+        delta_lat = radius_km / 111.0
+        delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
+        viewbox = f"{lon - delta_lon},{lat + delta_lat},{lon + delta_lon},{lat - delta_lat}"
+
+        try:
+            resp = requests.get(
+                f"{self.base_url}/search",
+                params={
+                    "q": query, "format": "json", "limit": 1, "addressdetails": 1,
+                    "viewbox": viewbox, "bounded": 1,
+                },
+                headers={"User-Agent": self.user_agent},
+                timeout=8,
+            )
+            data = resp.json()
+        except Exception as e:
+            self._last_error = str(e)
+            self.call_count -= 1
+            return None
+
+        if not data:
+            return None  # don't cache misses — allows retry on next run
+
+        r = data[0]
+        r_lat = float(r["lat"])
+        r_lon = float(r["lon"])
+        display_name = r.get("display_name", query)
+        place_type = r.get("type", r.get("class", ""))
+
+        self.cache_conn.execute(
+            "INSERT OR REPLACE INTO nominatim_cache (key,lat,lon,display_name,place_type) VALUES (?,?,?,?,?)",
+            (key, r_lat, r_lon, display_name, place_type),
+        )
+        self.cache_conn.commit()
+        return self._make_result(r_lat, r_lon, display_name, place_type)
 
     def _make_result(self, lat, lon, display_name, place_type) -> dict:
         is_precise = place_type.lower() not in _CITY_TYPES

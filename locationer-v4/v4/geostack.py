@@ -455,44 +455,58 @@ class GeoStack:
         if not skip_ext:
             query = " ".join(filter(None, [record.location or record.title,
                                            record.city, record.country]))
+            # Radius for bounded search: expanded for geo features (peaks, glaciers, passes).
+            nm_radius = max(city_radius * 4, 15) if geo_feature else city_radius
 
-            # When no city anchor but region is known, include region in the query
-            # so Nominatim disambiguates geographically (e.g. "Flüelastrasse Graubünden"
-            # instead of "Flüelastrasse" which matches a street in Zürich).
-            if record.location and not near and record.region:
-                nm_query = " ".join(filter(None, [record.location, record.region, record.country]))
-            elif record.location:
+            if near and record.location:
+                # Bounded search: constrain to city radius so any result is guaranteed
+                # to be in the right area, even if the query string is imprecise.
+                # Query is just the location name — city context comes from the viewbox.
                 nm_query = record.location
+                dbg.append(f"Nominatim bounded query: {nm_query!r} (r={nm_radius:.0f}km)")
+                nm = self.nominatim.search_bounded(nm_query, near[0], near[1], nm_radius)
+                if nm is None:
+                    # Retry with location + city in case Nominatim needs the city name
+                    dbg.append(f"Nominatim bounded retry: {query!r}")
+                    nm = self.nominatim.search_bounded(query, near[0], near[1], nm_radius)
             else:
-                nm_query = query
-            dbg.append(f"Nominatim query: {nm_query!r}")
-            nm = self.nominatim.search(nm_query)
-            if nm is None and record.location and (record.city or record.country):
-                dbg.append(f"Nominatim retry: {query!r}")
-                nm = self.nominatim.search(query)
+                # No city anchor — fall back to unbounded search with region disambiguation.
+                if record.location and not near and record.region:
+                    nm_query = " ".join(filter(None, [record.location, record.region, record.country]))
+                elif record.location:
+                    nm_query = record.location
+                else:
+                    nm_query = query
+                dbg.append(f"Nominatim query: {nm_query!r}")
+                nm = self.nominatim.search(nm_query)
+                if nm is None and record.location and (record.city or record.country):
+                    dbg.append(f"Nominatim retry: {query!r}")
+                    nm = self.nominatim.search(query)
+
             if self.nominatim._last_error:
                 dbg.append(f"Nominatim error: {self.nominatim._last_error}")
                 self.nominatim._last_error = ""
             if nm:
                 self.ext_count += 1
-                # Proximity check: dynamic city radius (expanded for geo features) or admin1 centroid.
+                # Proximity check as secondary guard (bounded results already constrained,
+                # unbounded results still need filtering against city/admin1 anchor).
                 effective_near = near or admin1_near
-                if near:
-                    threshold = max(city_radius * 4, 15) if geo_feature else city_radius
-                else:
-                    threshold = 100
+                threshold = nm_radius if near else 100
                 if nm.get("precise") and effective_near and record.location:
                     dist = _dist_km(nm["lat"], nm["lon"], effective_near[0], effective_near[1])
                     if dist > threshold:
                         anchor_label = "city" if near else f"{admin1_hint} centroid"
                         dbg.append(f"Nominatim precise hit {nm['name']!r} rejected ({dist:.0f} km from {anchor_label})")
-                        nm2 = self.nominatim.search(query)
-                        if nm2 and nm2.get("precise"):
-                            dist2 = _dist_km(nm2["lat"], nm2["lon"], effective_near[0], effective_near[1])
-                            if dist2 > threshold:
-                                dbg.append(f"Nominatim retry {nm2['name']!r} also rejected ({dist2:.0f} km)")
-                                nm2 = None
-                        nm = nm2
+                        if not near:
+                            nm2 = self.nominatim.search(query)
+                            if nm2 and nm2.get("precise"):
+                                dist2 = _dist_km(nm2["lat"], nm2["lon"], effective_near[0], effective_near[1])
+                                if dist2 > threshold:
+                                    dbg.append(f"Nominatim retry {nm2['name']!r} also rejected ({dist2:.0f} km)")
+                                    nm2 = None
+                            nm = nm2
+                        else:
+                            nm = None  # bounded already — no point retrying
                 if nm:
                     ext_result = {**nm, "source": "nominatim"}
                     dbg.append(f"Nominatim hit: {nm['name']} (precise={nm['precise']})")
@@ -565,16 +579,20 @@ class GeoStack:
                                        match_name=crow_gn["canonical_name"])
                     dbg.append(f"geocoding_name → country_db: {crow_gn['canonical_name']}")
                     return self._store(cache_key, result, dbg)
-            # Nominatim mit geocoding_name
+            # Nominatim mit geocoding_name — bounded wenn city-Anchor vorhanden
             nm_gn_q = " ".join(filter(None, [gn, record.city, record.country]))
-            nm_gn = self.nominatim.search(nm_gn_q)
+            gn_radius = max(city_radius * 2, 5)
+            if near:
+                nm_gn = self.nominatim.search_bounded(gn, near[0], near[1], gn_radius)
+            else:
+                nm_gn = self.nominatim.search(nm_gn_q)
             if nm_gn and nm_gn.get("precise"):
                 self.ext_count += 1
                 if not country_code or _within_country_bbox(nm_gn["lat"], nm_gn["lon"], country_code):
                     result = GeoResult(lat=nm_gn["lat"], lon=nm_gn["lon"], quality_score=4,
                                        fallback=False, source="nominatim",
                                        match_name=nm_gn["name"])
-                    dbg.append(f"geocoding_name → Nominatim: {nm_gn['name']}")
+                    dbg.append(f"geocoding_name → Nominatim bounded: {nm_gn['name']}")
                     return self._store(cache_key, result, dbg)
             dbg.append(f"geocoding_name: all miss for {gn!r}")
 
