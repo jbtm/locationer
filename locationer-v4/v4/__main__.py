@@ -13,6 +13,7 @@ load_dotenv(".env.local")
 import pandas as pd
 
 from .cache import Cache
+from .country_db import load_country_dbs
 from .explicit_store import ExplicitStore
 from .geo_db import GeoDatabase
 from .geostack import GeoStack
@@ -463,6 +464,13 @@ def main():
     else:
         print(f"TGN DB:  not found (run python -m v4.import_tgn to build)")
 
+    # Country DBs (optional — auto-loaded from COUNTRY_DB_XX env vars)
+    country_dbs = load_country_dbs(dict(os.environ))
+    if country_dbs:
+        print(f"Country DBs: {', '.join(sorted(country_dbs.keys()))}")
+    else:
+        print("Country DBs: none configured (set COUNTRY_DB_CH etc. in .env)")
+
     import sqlite3 as _sqlite3
     _ext_conn = _sqlite3.connect(_CACHE_DEFAULT)
     nominatim = Nominatim(_ext_conn, base_url=_NOMINATIM_URL, user_agent=_NOMINATIM_UA,
@@ -471,7 +479,8 @@ def main():
                                 extra_desc_cols=_EXTRA_DESC_COLS)
     geostack   = GeoStack(geo_db, cache, nominatim,
                           debug=(args.mode == "debug"), overrides=overrides,
-                          tgn_db=tgn_db, collection_bbox=_COLLECTION_BBOX)
+                          tgn_db=tgn_db, collection_bbox=_COLLECTION_BBOX,
+                          country_dbs=country_dbs)
 
     chunk_size = args.chunk_size or total  # no chunking = one big chunk
 

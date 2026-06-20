@@ -10,8 +10,9 @@ class NormalizedRecord:
     city: str
     location: str = ""    # specific named feature for GeoStack (e.g. "Schloss Vaduz")
     region: str = ""      # canton/state/province hint for city disambiguation (e.g. "Graubünden")
-    tgn_id: str = ""      # Getty TGN identifier, set by Phase 1c (e.g. "7003521")
-    tgn_name: str = ""    # TGN canonical name (e.g. "Rome")
+    tgn_id: str = ""          # Getty TGN identifier, set by Phase 1c (e.g. "7003521")
+    tgn_name: str = ""        # TGN canonical name (e.g. "Rome")
+    geocoding_name: str = ""  # official local-language name for geocoding fallback (Phase 1a)
 
 
 @dataclass

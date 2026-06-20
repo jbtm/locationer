@@ -32,6 +32,36 @@ NOMINATIM_URL=...                # default: https://nominatim.openstreetmap.org
 NOMINATIM_USER_AGENT=...         # Pflicht für public Nominatim
 ```
 
+## Country DBs importieren (einmalig, ~2–5 Min pro Land)
+
+```bash
+# Einzelnes Land
+python -m v4.import_country CH --output /path/to/LocationerGeo/ch_country.sqlite
+
+# Alle 6 Länder auf einmal
+python -m v4.import_country DE FR IT AT CH NO \
+    --output-dir /Users/dec/Documents/PROGRAMMIEREN/python/Locationer/LocationerGeo/
+
+# Statistik einer bestehenden DB
+python -m v4.import_country CH --check --output /path/to/ch_country.sqlite
+```
+
+Danach in `.env` eintragen (die auskommentierten Zeilen aktivieren):
+```
+COUNTRY_DB_CH=/path/to/ch_country.sqlite
+COUNTRY_DB_DE=/path/to/de_country.sqlite
+# usw.
+```
+
+| Land | Quelle | Besonderheit |
+|------|--------|--------------|
+| CH | GeoNames + alternateNames | Romanisch (rm), Französisch, Italienisch |
+| IT | GeoNames + alternateNames | Deutsch (Südtirol/de), Ladinisch (lld) |
+| NO | GeoNames + alternateNames | Nynorsk (nn), Bokmål (nb), Sami (se) |
+| DE | GeoNames + alternateNames | Niederdeutsch (nds), Bairisch (bar) |
+| FR | GeoNames + alternateNames | Okzitanisch (oc), Bretonisch (br), Korsisch (co) |
+| AT | GeoNames + alternateNames | Bairisch (bar) |
+
 ## TGN importieren (einmalig, ~30–60 Min)
 
 ```bash
@@ -87,9 +117,11 @@ Parameter identisch zu V3: `--mode`, `--limit`, `--chunk-size`, `--output`, `--g
 1.   geo_cache        (persistent SQLite)
 2.   GEO DB precise   find_precise() S/T/H/V/L + 50km-Validierung  → Score 5
 2.5  TGN precise      tgn_id aus Phase 1c → get_by_id()             → Score 5
+2.7  Country DB prec  country_dbs[cc].find_precise() falls DB vorh.  → Score 5
 3.   Nominatim        Text Search, erst location allein, dann +city  → Score 4
      (nur wenn city ODER location bekannt — kein Aufruf ohne Anker)
 4.   GEO DB city      find_city() P + ADM3/ADM4 Fallback             → Score 3
+4.5  Country DB city  country_dbs[cc].find_city() falls GEO DB miss  → Score 3
 5.   Nominatim city   city+country, nur wenn GEO DB miss             → Score 2
 →    Score 0          keine Koordinaten
 ```
@@ -127,6 +159,31 @@ Timeouts. Re-aktivierbar wenn lokale Wikidata-Instanz verfügbar.
 | `nominatim_cache` | Nominatim-Antworten | `cache/locationer.sqlite` |
 | TGN SQLite | Alle TGN-Orte (1.6M) | `tgn.sqlite` (LCMT_JBTM) |
 | `overrides` + `norm_overrides` | Manuelle Korrekturen | `explicit_list/explicit.sqlite` |
+
+## Cache-Management nach Code-Änderungen
+
+**Nach jeder Code-Änderung prüfen ob gecachte Ergebnisse veraltet/falsch sein könnten.**
+Bei Unsicherheit: betroffene Cache-Tabellen leeren.
+
+| Geänderte Datei | Betroffene Cache-Tabellen | Aktion |
+|---|---|---|
+| `geostack.py`, `geo_db.py`, `country_db.py`, `tgn_db.py`, `nominatim.py` | `geo_cache` | `geo_cache` leeren |
+| `input_normalizer.py` | `norm_cache`, `meta_cache` | `norm_cache` + `meta_cache` leeren |
+| Overrides (`explicit.sqlite`) | `geo_cache` (betroffene Einträge) | `geo_cache` komplett leeren |
+| Country DBs neu importiert | `geo_cache` | `geo_cache` leeren |
+
+```bash
+# geo_cache leeren (am häufigsten nötig)
+sqlite3 cache/locationer.sqlite "DELETE FROM geo_cache;"
+
+# norm_cache + meta_cache leeren
+sqlite3 cache/locationer.sqlite "DELETE FROM norm_cache; DELETE FROM meta_cache;"
+
+# Alles leeren
+sqlite3 cache/locationer.sqlite "DELETE FROM geo_cache; DELETE FROM norm_cache; DELETE FROM meta_cache; DELETE FROM nominatim_cache;"
+```
+
+**Wichtig:** Einen Test-Run nach Cache-Leerung immer mit `--mode debug --limit 20` starten um unerwartete Regressionenfrühzeitig zu erkennen.
 
 ## Manuelle Overrides
 

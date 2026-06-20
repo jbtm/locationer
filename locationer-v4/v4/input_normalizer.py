@@ -40,8 +40,9 @@ For each numbered entry, return one JSON object in an array:
   "country":       "<English country name, or empty string>",
   "region":        "<canton, state, province or county — e.g. 'Graubünden', 'Lombardia', 'Bavaria' — infer from geographic context clues even when not explicitly named: a well-known mountain range, valley, lake or peak can strongly imply a region (e.g. 'Berninagruppe', 'Corvatsch', 'Piz Roseg', 'Engadin' → 'Graubünden'; 'Vierwaldstättersee', 'Rigi' → 'Luzern'; 'Jungfrau', 'Eiger' → 'Bern'; 'Mont Blanc' → 'Aosta Valley') — empty string only if genuinely unclear>",
   "city":          "<city or town name including disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen', or empty string>",
-  "location":      "<most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht' – empty string if only a city, portrait, or generic scene>",
-  "location_type": "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'Schulhaus', 'église', 'stazione' — null otherwise>"
+  "location":       "<most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht' – empty string if only a city, portrait, or generic scene>",
+  "location_type":  "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'Schulhaus', 'église', 'stazione' — null otherwise>",
+  "geocoding_name": "<only when location is non-empty: the official local-language name used in geocoding databases, if different from location — e.g. 'Sprungschanze Vikersund' (Norway) → 'Hoppebakken', 'Petersplatz' (Rome) → 'Piazza San Pietro', 'Vierwaldstättersee' → 'Lago dei Quattro Cantoni' — empty string if same as location, if uncertain, or if location is empty>"
 }
 
 Rules for `location`:
@@ -303,7 +304,7 @@ class InputNormalizer:
         self.haiku_count += 1
         response = self.client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=max(len(batch) * 220, 512),
+            max_tokens=max(len(batch) * 250, 512),
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -343,6 +344,11 @@ class InputNormalizer:
             input_region = mapped.get("region", "").strip()
             region = input_region if input_region else ai_region
 
+            geocoding_name = str(item.get("geocoding_name", "")).strip()
+            # Only keep if genuinely different from location (case-insensitive)
+            if geocoding_name.lower() == location.lower():
+                geocoding_name = ""
+
             records.append(
                 NormalizedRecord(
                     title=str(item.get("title", mapped.get("title", "")))[:60],
@@ -351,6 +357,7 @@ class InputNormalizer:
                     region=region,
                     city=city,
                     location=location,
+                    geocoding_name=geocoding_name,
                 )
             )
         return records

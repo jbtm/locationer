@@ -3,6 +3,7 @@ import re
 from typing import Optional
 
 from .cache import Cache
+from .country_db import CountryDB
 from .explicit_store import ExplicitStore
 from .geo_db import GeoDatabase
 from .models import GeoResult, NormalizedRecord
@@ -197,14 +198,16 @@ class GeoStack:
         overrides: Optional[ExplicitStore] = None,
         tgn_db=None,
         collection_bbox: "tuple[float,float,float,float] | None" = None,
+        country_dbs: "dict[str, CountryDB] | None" = None,
     ):
-        self.geo_db         = geo_db
-        self.cache          = cache
-        self.nominatim      = nominatim
-        self.tgn_db         = tgn_db
-        self.debug          = debug
-        self.overrides      = overrides
+        self.geo_db          = geo_db
+        self.cache           = cache
+        self.nominatim       = nominatim
+        self.tgn_db          = tgn_db
+        self.debug           = debug
+        self.overrides       = overrides
         self.collection_bbox = collection_bbox
+        self.country_dbs     = country_dbs or {}
         self.ext_count = 0  # Nominatim calls
 
     def geocode(self, record: NormalizedRecord) -> GeoResult:
@@ -421,6 +424,23 @@ class GeoStack:
             else:
                 dbg.append(f"TGN miss for id={record.tgn_id}")
 
+        # ── Step 2.7: Country DB precise ─────────────────────────────────────
+        cdb = self.country_dbs.get(country_code) if country_code else None
+        if cdb and record.location:
+            crow = cdb.find_precise(record.location, country_code,
+                                    near=near, radius_km=max(city_radius * 2, 5),
+                                    admin1_hint=admin1_hint)
+            if crow:
+                result = GeoResult(
+                    lat=crow["lat"], lon=crow["lon"], quality_score=5,
+                    fallback=False, source="country_db",
+                    match_name=crow["canonical_name"],
+                )
+                dbg.append(f"country_db precise: {crow['canonical_name']}")
+                return self._store(cache_key, result, dbg)
+            else:
+                dbg.append(f"country_db precise miss: {record.location!r}")
+
         # ── Step 3: Nominatim ─────────────────────────────────────────────────
         # Only call Nominatim if we have at least a city or a specific location —
         # prevents nonsense results for records like "Hotel" with no geographic anchor.
@@ -510,6 +530,54 @@ class GeoStack:
         if ext_result:
             dbg.append(f"external not precise: {ext_result['name']}")
 
+        # ── Step 3.5: geocoding_name — letzter Präzisionsversuch ─────────────
+        # Haiku extrahiert in Phase 1a den offiziellen lokalen Namen (z.B.
+        # "Sprungschanze Vikersund" → "Hoppebakken"). Hier nochmals GEO DB,
+        # Country DB und Nominatim mit diesem Namen versuchen.
+        gn = record.geocoding_name
+        if gn and gn != record.location:
+            dbg.append(f"geocoding_name: {gn!r}")
+            # GEO DB precise
+            if self.geo_db:
+                row_gn = self.geo_db.find_precise(gn, country_code, near=near,
+                                                  admin1_hint=admin1_hint)
+                if row_gn:
+                    dist_gn = _dist_km(row_gn["lat"], row_gn["lon"], near[0], near[1]) if near else 0
+                    gn_radius = max(city_radius * 2, 5)
+                    if near and dist_gn > gn_radius:
+                        dbg.append(f"geocoding_name GEO DB {row_gn['name']!r} rejected ({dist_gn:.0f} km)")
+                        row_gn = None
+                if row_gn and country_code and not _within_country_bbox(row_gn["lat"], row_gn["lon"], country_code):
+                    dbg.append(f"geocoding_name GEO DB {row_gn['name']!r} rejected (outside bbox)")
+                    row_gn = None
+                if row_gn:
+                    result = GeoResult(lat=row_gn["lat"], lon=row_gn["lon"], quality_score=5,
+                                       fallback=False, source="geo_db", match_name=row_gn["name"])
+                    dbg.append(f"geocoding_name → GEO DB: {row_gn['name']}")
+                    return self._store(cache_key, result, dbg)
+            # Country DB precise
+            if cdb:
+                crow_gn = cdb.find_precise(gn, country_code, near=near,
+                                           radius_km=max(city_radius * 2, 5))
+                if crow_gn:
+                    result = GeoResult(lat=crow_gn["lat"], lon=crow_gn["lon"], quality_score=5,
+                                       fallback=False, source="country_db",
+                                       match_name=crow_gn["canonical_name"])
+                    dbg.append(f"geocoding_name → country_db: {crow_gn['canonical_name']}")
+                    return self._store(cache_key, result, dbg)
+            # Nominatim mit geocoding_name
+            nm_gn_q = " ".join(filter(None, [gn, record.city, record.country]))
+            nm_gn = self.nominatim.search(nm_gn_q)
+            if nm_gn and nm_gn.get("precise"):
+                self.ext_count += 1
+                if not country_code or _within_country_bbox(nm_gn["lat"], nm_gn["lon"], country_code):
+                    result = GeoResult(lat=nm_gn["lat"], lon=nm_gn["lon"], quality_score=4,
+                                       fallback=False, source="nominatim",
+                                       match_name=nm_gn["name"])
+                    dbg.append(f"geocoding_name → Nominatim: {nm_gn['name']}")
+                    return self._store(cache_key, result, dbg)
+            dbg.append(f"geocoding_name: all miss for {gn!r}")
+
         # ── Step 5: GEO DB city fallback ──────────────────────────────────────
         # Use city_row (PPL) or geo_feat_city (feature found via find_precise) as fallback.
         if not city_row and geo_feat_city:
@@ -525,6 +593,18 @@ class GeoStack:
                     fallback=True, source="geo_db", match_name=city_row["name"],
                 )
                 dbg.append(f"city GEO DB: {city_row['name']} [{city_row['feature_code']}]")
+                return self._store(cache_key, result, dbg)
+
+        # ── Step 4.5: Country DB city fallback ───────────────────────────────
+        if cdb and record.city and not city_row:
+            ccrow = cdb.find_city(record.city, country_code, admin1_hint=admin1_hint)
+            if ccrow:
+                result = GeoResult(
+                    lat=ccrow["lat"], lon=ccrow["lon"], quality_score=3,
+                    fallback=True, source="country_db",
+                    match_name=ccrow["canonical_name"],
+                )
+                dbg.append(f"country_db city: {ccrow['canonical_name']}")
                 return self._store(cache_key, result, dbg)
 
         # ── Step 6: Nominatim city-only ───────────────────────────────────────
