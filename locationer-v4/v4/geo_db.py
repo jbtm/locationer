@@ -281,7 +281,7 @@ class GeoDatabase:
                         0 if (admin1_hint and r["admin1"] == admin1_hint) else 1,
                         0 if r["feature_code"] == "ADM3" else 1,
                     ))
-                    return adm[0]
+                    return adm[0], False
 
         # If still no candidates, retry with parenthetical/slash stripped.
         if not candidates and country_code:
@@ -318,12 +318,12 @@ class GeoDatabase:
                         if admin1_hint:
                             adm_s = [r for r in adm_s if r["admin1"] == admin1_hint]
                         if adm_s:
-                            return adm_s[0]
+                            return adm_s[0], False
                 if candidates:
                     break  # found via first matching part
 
         if not candidates:
-            return None
+            return None, False
 
         # Sort: region hint first, then feature-code priority, then population
         candidates.sort(key=lambda r: (
@@ -333,7 +333,19 @@ class GeoDatabase:
             -(r["population"] or 0),
         ))
 
-        return candidates[0]
+        # Ambiguity: multiple candidates that are geographically far apart
+        is_ambiguous = False
+        if len(candidates) >= 2:
+            dlat = math.radians(candidates[1]["lat"] - candidates[0]["lat"])
+            dlon = math.radians(candidates[1]["lon"] - candidates[0]["lon"])
+            a = (math.sin(dlat / 2) ** 2
+                 + math.cos(math.radians(candidates[0]["lat"]))
+                 * math.cos(math.radians(candidates[1]["lat"]))
+                 * math.sin(dlon / 2) ** 2)
+            dist = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            is_ambiguous = dist > 30.0
+
+        return candidates[0], is_ambiguous
 
     def find_admin1_centroid(self, country_code: str, admin1_code: str) -> "tuple[float, float] | None":
         """Return (lat, lon) of the ADM1 feature (canton/state/province) centroid."""

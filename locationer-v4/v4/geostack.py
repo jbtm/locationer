@@ -249,7 +249,7 @@ class GeoStack:
             prox_ok = True
             if bbox_ok and cached.source == "nominatim" and self.geo_db:
                 lookup = record.city or cached.match_name
-                city_row_c = self.geo_db.find_city(lookup, cc) if lookup else None
+                city_row_c, _ = self.geo_db.find_city(lookup, cc) if lookup else (None, False)
                 if city_row_c:
                     dist = _dist_km(cached.lat, cached.lon, city_row_c["lat"], city_row_c["lon"])
                     prox_ok = dist <= _city_radius_km(city_row_c)
@@ -283,7 +283,7 @@ class GeoStack:
             mn_lat, mx_lat, mn_lon, mx_lon = self.collection_bbox
             collection_center = ((mn_lat + mx_lat) / 2, (mn_lon + mx_lon) / 2)
 
-        city_row = self.geo_db.find_city(record.city, country_code, admin1_hint) if (self.geo_db and record.city) else None
+        city_row, city_ambiguous = self.geo_db.find_city(record.city, country_code, admin1_hint) if (self.geo_db and record.city) else (None, False)
         near = (city_row["lat"], city_row["lon"]) if city_row else None
         city_radius = _city_radius_km(city_row)  # dynamic threshold based on city size
         geo_feature = _is_geo_feature(record.location)  # gorges/passes/peaks need bigger radius
@@ -389,6 +389,7 @@ class GeoStack:
                     result = GeoResult(
                         lat=row["lat"], lon=row["lon"], quality_score=5,
                         fallback=False, source="geo_db", match_name=row["name"],
+                        ambiguous=city_ambiguous,
                     )
                     dbg.append(f"precise GEO DB: {row['name']} [{row['feature_class']}.{row['feature_code']}]")
                     return self._store(cache_key, result, dbg)
@@ -418,6 +419,7 @@ class GeoStack:
                         lat=tgn_lat, lon=tgn_lon, quality_score=5,
                         fallback=False, source="tgn",
                         match_name=tgn_row["pref_name"] or record.tgn_name,
+                        ambiguous=city_ambiguous,
                     )
                     dbg.append(f"TGN: {tgn_row['pref_name']} [{tgn_row['place_type']}] id={record.tgn_id}")
                     return self._store(cache_key, result, dbg)
@@ -435,6 +437,7 @@ class GeoStack:
                     lat=crow["lat"], lon=crow["lon"], quality_score=5,
                     fallback=False, source="country_db",
                     match_name=crow["canonical_name"],
+                    ambiguous=city_ambiguous,
                 )
                 dbg.append(f"country_db precise: {crow['canonical_name']}")
                 return self._store(cache_key, result, dbg)
@@ -469,6 +472,13 @@ class GeoStack:
                     # Retry with location + city in case Nominatim needs the city name
                     dbg.append(f"Nominatim bounded retry: {query!r}")
                     nm = self.nominatim.search_bounded(query, near[0], near[1], nm_radius)
+                if nm is None and record.geocoding_queries:
+                    # Try Haiku-generated local-language queries (e.g. "Cathédrale Saint-Pierre Genève")
+                    for gq in record.geocoding_queries:
+                        dbg.append(f"Nominatim bounded geocoding_query: {gq!r}")
+                        nm = self.nominatim.search_bounded(gq, near[0], near[1], nm_radius)
+                        if nm:
+                            break
             else:
                 # No city anchor — fall back to unbounded search with region disambiguation.
                 if record.location and not near and record.region:
@@ -538,63 +548,30 @@ class GeoStack:
                     lat=ext_result["lat"], lon=ext_result["lon"], quality_score=4,
                     fallback=False, source=ext_result["source"],
                     match_name=ext_result["name"],
+                    ambiguous=city_ambiguous,
                 )
                 return self._store(cache_key, result, dbg)
 
         if ext_result:
             dbg.append(f"external not precise: {ext_result['name']}")
 
-        # ── Step 3.5: geocoding_name — letzter Präzisionsversuch ─────────────
-        # Haiku extrahiert in Phase 1a den offiziellen lokalen Namen (z.B.
-        # "Sprungschanze Vikersund" → "Hoppebakken"). Hier nochmals GEO DB,
-        # Country DB und Nominatim mit diesem Namen versuchen.
-        gn = record.geocoding_name
-        if gn and gn != record.location:
-            dbg.append(f"geocoding_name: {gn!r}")
-            # GEO DB precise
-            if self.geo_db:
-                row_gn = self.geo_db.find_precise(gn, country_code, near=near,
-                                                  admin1_hint=admin1_hint)
-                if row_gn:
-                    dist_gn = _dist_km(row_gn["lat"], row_gn["lon"], near[0], near[1]) if near else 0
-                    gn_radius = max(city_radius * 2, 5)
-                    if near and dist_gn > gn_radius:
-                        dbg.append(f"geocoding_name GEO DB {row_gn['name']!r} rejected ({dist_gn:.0f} km)")
-                        row_gn = None
-                if row_gn and country_code and not _within_country_bbox(row_gn["lat"], row_gn["lon"], country_code):
-                    dbg.append(f"geocoding_name GEO DB {row_gn['name']!r} rejected (outside bbox)")
-                    row_gn = None
-                if row_gn:
-                    result = GeoResult(lat=row_gn["lat"], lon=row_gn["lon"], quality_score=5,
-                                       fallback=False, source="geo_db", match_name=row_gn["name"])
-                    dbg.append(f"geocoding_name → GEO DB: {row_gn['name']}")
-                    return self._store(cache_key, result, dbg)
-            # Country DB precise
-            if cdb:
-                crow_gn = cdb.find_precise(gn, country_code, near=near,
-                                           radius_km=max(city_radius * 2, 5))
-                if crow_gn:
-                    result = GeoResult(lat=crow_gn["lat"], lon=crow_gn["lon"], quality_score=5,
-                                       fallback=False, source="country_db",
-                                       match_name=crow_gn["canonical_name"])
-                    dbg.append(f"geocoding_name → country_db: {crow_gn['canonical_name']}")
-                    return self._store(cache_key, result, dbg)
-            # Nominatim mit geocoding_name — bounded wenn city-Anchor vorhanden
-            nm_gn_q = " ".join(filter(None, [gn, record.city, record.country]))
-            gn_radius = max(city_radius * 2, 5)
-            if near:
-                nm_gn = self.nominatim.search_bounded(gn, near[0], near[1], gn_radius)
-            else:
-                nm_gn = self.nominatim.search(nm_gn_q)
-            if nm_gn and nm_gn.get("precise"):
-                self.ext_count += 1
-                if not country_code or _within_country_bbox(nm_gn["lat"], nm_gn["lon"], country_code):
-                    result = GeoResult(lat=nm_gn["lat"], lon=nm_gn["lon"], quality_score=4,
-                                       fallback=False, source="nominatim",
-                                       match_name=nm_gn["name"])
-                    dbg.append(f"geocoding_name → Nominatim bounded: {nm_gn['name']}")
-                    return self._store(cache_key, result, dbg)
-            dbg.append(f"geocoding_name: all miss for {gn!r}")
+        # ── Step 3.5: geocoding_queries unbounded fallback ───────────────────
+        # When there is no city anchor (near=None), the bounded search above was
+        # skipped. Try each Haiku-generated query unbounded as a last precision attempt.
+        if not near and record.geocoding_queries and record.location:
+            for gq in record.geocoding_queries:
+                dbg.append(f"geocoding_query unbounded: {gq!r}")
+                nm_gq = self.nominatim.search(gq)
+                if nm_gq and nm_gq.get("precise"):
+                    self.ext_count += 1
+                    ok = (not country_code or _within_country_bbox(nm_gq["lat"], nm_gq["lon"], country_code))
+                    if ok:
+                        result = GeoResult(lat=nm_gq["lat"], lon=nm_gq["lon"], quality_score=4,
+                                           fallback=False, source="nominatim",
+                                           match_name=nm_gq["name"],
+                                           ambiguous=city_ambiguous)
+                        dbg.append(f"geocoding_query → Nominatim: {nm_gq['name']}")
+                        return self._store(cache_key, result, dbg)
 
         # ── Step 5: GEO DB city fallback ──────────────────────────────────────
         # Use city_row (PPL) or geo_feat_city (feature found via find_precise) as fallback.
@@ -609,6 +586,7 @@ class GeoStack:
                 result = GeoResult(
                     lat=city_row["lat"], lon=city_row["lon"], quality_score=3,
                     fallback=True, source="geo_db", match_name=city_row["name"],
+                    ambiguous=city_ambiguous,
                 )
                 dbg.append(f"city GEO DB: {city_row['name']} [{city_row['feature_code']}]")
                 return self._store(cache_key, result, dbg)
@@ -621,6 +599,7 @@ class GeoStack:
                     lat=ccrow["lat"], lon=ccrow["lon"], quality_score=3,
                     fallback=True, source="country_db",
                     match_name=ccrow["canonical_name"],
+                    ambiguous=city_ambiguous,
                 )
                 dbg.append(f"country_db city: {ccrow['canonical_name']}")
                 return self._store(cache_key, result, dbg)
@@ -634,6 +613,7 @@ class GeoStack:
                 lat=city_fallback["lat"], lon=city_fallback["lon"], quality_score=2,
                 fallback=True, source="nominatim",
                 match_name=city_fallback["name"],
+                ambiguous=city_ambiguous,
             )
             dbg.append(f"city fallback via Nominatim: {city_fallback['name']}")
             return self._store(cache_key, result, dbg)

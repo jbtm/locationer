@@ -1,4 +1,5 @@
 import hashlib
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -19,14 +20,15 @@ class Cache:
     def _init(self):
         self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS norm_cache (
-                key       TEXT PRIMARY KEY,
-                title     TEXT,
-                description TEXT,
-                country   TEXT,
-                region    TEXT,
-                city      TEXT,
-                location  TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                key                TEXT PRIMARY KEY,
+                title              TEXT,
+                description        TEXT,
+                country            TEXT,
+                region             TEXT,
+                city               TEXT,
+                location           TEXT,
+                geocoding_queries  TEXT,
+                created_at         TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS geo_cache (
                 key           TEXT PRIMARY KEY,
@@ -36,6 +38,7 @@ class Cache:
                 fallback      INTEGER,
                 source        TEXT,
                 match_name    TEXT,
+                ambiguous     INTEGER DEFAULT 0,
                 created_at    TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS meta_cache (
@@ -46,30 +49,54 @@ class Cache:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Migrate existing tables that predate new columns
+        for stmt in (
+            "ALTER TABLE norm_cache ADD COLUMN geocoding_queries TEXT",
+            "ALTER TABLE geo_cache  ADD COLUMN ambiguous INTEGER DEFAULT 0",
+        ):
+            try:
+                self.conn.execute(stmt)
+            except Exception:
+                pass  # column already exists
         self.conn.commit()
 
     def get_norm(self, raw_key: str) -> Optional[NormalizedRecord]:
         row = self.conn.execute(
-            "SELECT title, description, country, city, location, region FROM norm_cache WHERE key=?",
+            "SELECT title, description, country, city, location, region, geocoding_queries "
+            "FROM norm_cache WHERE key=?",
             (_key(raw_key),),
         ).fetchone()
         if not row:
             return None
+        gq = []
+        if row[6]:
+            try:
+                gq = json.loads(row[6])
+            except Exception:
+                gq = []
         return NormalizedRecord(
             title=row[0], description=row[1], country=row[2],
             city=row[3], location=row[4], region=row[5] or "",
+            geocoding_queries=gq,
         )
 
     def set_norm(self, raw_key: str, rec: NormalizedRecord):
         self.conn.execute(
-            "INSERT OR REPLACE INTO norm_cache (key,title,description,country,region,city,location) VALUES (?,?,?,?,?,?,?)",
-            (_key(raw_key), rec.title, rec.description, rec.country, rec.region, rec.city, rec.location),
+            "INSERT OR REPLACE INTO norm_cache "
+            "(key,title,description,country,region,city,location,geocoding_queries) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                _key(raw_key), rec.title, rec.description, rec.country,
+                rec.region, rec.city, rec.location,
+                json.dumps(rec.geocoding_queries) if rec.geocoding_queries else None,
+            ),
         )
         self.conn.commit()
 
     def get_geo(self, query: str) -> Optional[GeoResult]:
         row = self.conn.execute(
-            "SELECT lat,lon,quality_score,fallback,source,match_name FROM geo_cache WHERE key=?",
+            "SELECT lat,lon,quality_score,fallback,source,match_name,ambiguous "
+            "FROM geo_cache WHERE key=?",
             (_key(query),),
         ).fetchone()
         if not row:
@@ -77,13 +104,19 @@ class Cache:
         return GeoResult(
             lat=row[0], lon=row[1], quality_score=row[2],
             fallback=bool(row[3]), source=row[4], match_name=row[5],
+            ambiguous=bool(row[6]) if row[6] is not None else False,
         )
 
     def set_geo(self, query: str, result: GeoResult):
         self.conn.execute(
-            "INSERT OR REPLACE INTO geo_cache (key,lat,lon,quality_score,fallback,source,match_name) VALUES (?,?,?,?,?,?,?)",
-            (_key(query), result.lat, result.lon, result.quality_score,
-             int(result.fallback), result.source, result.match_name),
+            "INSERT OR REPLACE INTO geo_cache "
+            "(key,lat,lon,quality_score,fallback,source,match_name,ambiguous) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                _key(query), result.lat, result.lon, result.quality_score,
+                int(result.fallback), result.source, result.match_name,
+                int(result.ambiguous),
+            ),
         )
         self.conn.commit()
 
@@ -92,7 +125,6 @@ class Cache:
             "SELECT periode, urheber, technik FROM meta_cache WHERE key=?",
             (_key(raw_key),),
         ).fetchone()
-        # A stored row with all-None fields is still a valid cache entry (extraction ran, found nothing)
         if row is None:
             return None
         return {"periode": row[0], "urheber": row[1], "technik": row[2]}

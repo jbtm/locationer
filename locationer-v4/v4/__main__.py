@@ -166,7 +166,7 @@ def _get_region(geo_db: "GeoDatabase | None", rec: NormalizedRecord, geo: GeoRes
         return rec.region
     if geo.lat is None or not rec.city:
         return rec.region or ""
-    city_row = geo_db.find_city(rec.city, country_code)
+    city_row, _ = geo_db.find_city(rec.city, country_code)
     if not city_row or not city_row["admin1"]:
         return rec.region or ""
     return geo_db.find_region_name(city_row["country_code"], city_row["admin1"])
@@ -228,9 +228,10 @@ def _human(i: int, total: int, rec: NormalizedRecord, geo: GeoResult,
     fb = " (city fallback)" if geo.fallback else ""
     src = geo.source if geo.source != "none" else "—"
     unk = "  [Lok.unsicher]" if unknown_loc else ""
+    amb = "  [?ambig]" if geo.ambiguous else ""
     title = rec.title[:48].ljust(49)
     g_str = f"  [N:{google_total}]" if google_total else ""
-    print(f"[{i:>5}/{total}] {title}  {loc:<28}  {score_label}  {src}{fb}{_dev_str(geo, true)}{unk}{g_str}")
+    print(f"[{i:>5}/{total}] {title}  {loc:<28}  {score_label}  {src}{fb}{_dev_str(geo, true)}{unk}{amb}{g_str}")
 
 
 def _debug(i: int, total: int, rec: NormalizedRecord, geo: GeoResult, true: tuple | None = None):
@@ -358,6 +359,7 @@ def _process_chunk(
             "Lon": geo.lon,
             "Coord-Quality-Score": geo.quality_score,
             "Fallback": geo.fallback,
+            "Ambiguous": geo.ambiguous,
             "Ext-Calls": 1 if (geo.source in ("wikidata","nominatim") and geo.debug_info != ["cache hit"]) else 0,
         }
         if has_true_coords:

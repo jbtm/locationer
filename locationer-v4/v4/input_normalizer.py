@@ -42,7 +42,7 @@ For each numbered entry, return one JSON object in an array:
   "city":          "<city or town name including disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen', or empty string>",
   "location":       "<most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht' – empty string if only a city, portrait, or generic scene>",
   "location_type":  "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'Schulhaus', 'église', 'stazione' — null otherwise>",
-  "geocoding_name": "<only when location is non-empty: the official local-language name used in geocoding databases, if different from location — e.g. 'Sprungschanze Vikersund' (Norway) → 'Hoppebakken', 'Petersplatz' (Rome) → 'Piazza San Pietro', 'Vierwaldstättersee' → 'Lago dei Quattro Cantoni' — empty string if same as location, if uncertain, or if location is empty>"
+  "geocoding_queries": ["<1–3 complete Nominatim search strings in the official local language, most specific first — translate generic building words to local language: 'Kathedrale Genève' → ['Cathédrale Saint-Pierre Genève', 'cathédrale Genève']; 'Bahnhof Chur' → ['Bahnhof Chur', 'Gare de Coire']; 'Kirche Trafoi' → ['Kapelle Unsere Liebe Frau Trafoi', 'chiesa Trafoi']; include city name when helpful for disambiguation; use official OSM-style names — empty array [] when location is empty or is a purely generic word with no named referent>"]
 }
 
 Rules for `location`:
@@ -109,6 +109,38 @@ _REGION_CODES = {
     "ZG","ZH","LI",  # CH + LI
     "NW","OW",       # NW/OW duplicates — explicit
 }
+
+
+_TITLE_GENERIC = {
+    "ortsteilansicht", "gesamtansicht", "ortsgesamtansicht", "teilansicht",
+    "gesamtaussenansicht", "teilaussenansicht", "gesamtinnenansicht", "teilinnenansicht",
+    "dorfteilansicht", "ortsansicht", "dorfansicht", "stadtansicht", "dorfbild",
+    "ansicht", "aussenansicht", "innenansicht", "gesamtbild", "ortsgesamtbild", "ortsbild",
+    "landschaft", "panorama", "berglandschaft", "seelandschaft", "winterlandschaft",
+    "portrait", "portrat",
+}
+
+
+def _extract_location_from_title(title: str, city: str) -> str:
+    """Extract location from a Haiku-enriched title when the location field is empty.
+
+    "Genève, Pont des Bergues, Teilansicht" + city "Genève" → "Pont des Bergues"
+    "Genève, Ortsteilansicht"              + city "Genève" → "" (generic, skip)
+    """
+    if not city or not title:
+        return ""
+    prefix = city + ","
+    if not title.lower().startswith(prefix.lower()):
+        return ""
+    rest = title[len(prefix):].strip()
+    candidate = rest.split(",")[0].strip()
+    if not candidate:
+        return ""
+    # Reject if the candidate itself or its first word is a generic view/scene word
+    first_word = candidate.lower().split()[0].rstrip(".,")
+    if candidate.lower() in _TITLE_GENERIC or first_word in _TITLE_GENERIC:
+        return ""
+    return candidate
 
 
 def _normalize_city(city: str) -> str:
@@ -196,6 +228,17 @@ class InputNormalizer:
 
         results.sort(key=lambda x: x[0])
         normalized = [r for _, r in results]
+
+        # Post-process: extract location from enriched title for stale cache entries
+        # where Haiku left location='' but wrote the place name into the title.
+        for i, rec in enumerate(normalized):
+            if not rec.location and rec.city and rec.title:
+                extracted = _extract_location_from_title(rec.title, rec.city)
+                if extracted:
+                    rec.location = extracted
+                    # Update cache so future runs see the corrected location
+                    mapped = {k: _clean(v) for k, v in _map_columns(rows[i], self.extra_desc_cols).items()}
+                    self.cache.set_norm(_raw_key(mapped), rec)
 
         # ── Phase 1c: TGN Resolver ───────────────────────────────────────────
         # Fast local lookup — no AI call, no network.
@@ -338,16 +381,26 @@ class InputNormalizer:
                 loc_type = (item.get("location_type") or "").strip()
                 if loc_type:
                     location = f"{loc_type.title()} {city}"
+            # If still no location, extract from Haiku-enriched title.
+            # Haiku sometimes writes the place name into the title but forgets
+            # to set it as location (e.g. "Genève, Pont des Bergues, Teilansicht").
+            if not location and city:
+                ai_title = str(item.get("title", "")).strip()
+                location = _extract_location_from_title(ai_title, city)
             # Region priority: input column > Haiku extraction.
             # If the input CSV has a canton/region column, it is authoritative.
             ai_region = str(item.get("region", "")).strip()
             input_region = mapped.get("region", "").strip()
             region = input_region if input_region else ai_region
 
-            geocoding_name = str(item.get("geocoding_name", "")).strip()
-            # Only keep if genuinely different from location (case-insensitive)
-            if geocoding_name.lower() == location.lower():
-                geocoding_name = ""
+            raw_gq = item.get("geocoding_queries", [])
+            if isinstance(raw_gq, list):
+                geocoding_queries = [
+                    str(q).strip() for q in raw_gq
+                    if q and str(q).strip() and str(q).strip().lower() != location.lower()
+                ]
+            else:
+                geocoding_queries = []
 
             records.append(
                 NormalizedRecord(
@@ -357,7 +410,7 @@ class InputNormalizer:
                     region=region,
                     city=city,
                     location=location,
-                    geocoding_name=geocoding_name,
+                    geocoding_queries=geocoding_queries,
                 )
             )
         return records

@@ -2,7 +2,7 @@
 
 Geocoding-Pipeline für historische Fotoarchive. Liest CSV/XLSX, extrahiert Ortsinformationen mit Claude Haiku und löst diese zu GPS-Koordinaten auf — ohne Google Places API.
 
-Quellen: GeoNames (CC BY 4.0), Getty TGN (ODC-By), OpenStreetMap/Nominatim (ODbL) — alle erlauben persistentes Caching und kommerzielle Nutzung.
+Quellen: GeoNames (CC BY 4.0), Getty TGN (ODC-By), OpenStreetMap/Nominatim (ODbL), länderspezifische Country-DBs (GeoNames) — alle erlauben persistentes Caching und kommerzielle Nutzung.
 
 ---
 
@@ -48,6 +48,7 @@ COLLECTION_BBOX=43.0,62.0,-5.0,20.0    # Schweiz + Europa
   Greift nur wenn Haiku kein Land erkennt (`country=""`). Bilder mit bekanntem Land (`country="Egypt"`) werden immer korrekt geocodiert.
 
 - [ ] **NOMINATIM_USER_AGENT** — eigene E-Mail eintragen (Pflicht für public Nominatim)
+- [ ] **Country-DBs** — optional, aber empfohlen (CH, DE, FR, IT, AT, NO verfügbar). Fehlende Länder werden automatisch übersprungen.
 
 ### Testlauf
 
@@ -64,6 +65,7 @@ caffeinate -i python -m v4 meine_sammlung.csv
 
 - [ ] QA-Karte reviewen → offensichtliche Fehler als Overrides erfassen
 - [ ] Score-0-Treffer anschauen → ev. Overrides für bekannte Problemnamen (Grenzgipfel, historische Namen)
+- [ ] `[?ambig]`-Treffer prüfen → Score korrekt, aber Stadtzuordnung unsicher
 - [ ] Norm-Overrides für systematische Haiku-Fehler bei spezifischen Ortsnamen
 
 ---
@@ -169,10 +171,12 @@ Das Output-CSV enthält zuerst **alle Originalspalten des Inputs** (unverändert
 <alle Input-Spalten> …
 Title, Description, Periode, Urheber, Technik,
 Country, Region, City, Lat, Lon,
-Coord-Quality-Score, Fallback, Ext-Calls[, Deviation_km]
+Coord-Quality-Score, Fallback, Ambiguous, Ext-Calls[, Deviation_km]
 ```
 
 Wenn eine Input-Spalte denselben Namen wie eine Geocoding-Spalte trägt (z.B. `Title`), bleibt der Originalwert erhalten und der normalisierte Wert erscheint zusätzlich am Ende.
+
+`Ambiguous` — `True` wenn der City-Anker mehrdeutig war (mehrere geografisch weit auseinanderliegende Kandidaten). Die Koordinaten sind trotzdem vorhanden (bester Kandidat), aber die Zuordnung ist unsicher. Im human-Output erscheint `[?ambig]`.
 
 `Periode` — immer im PCTM-Format. Haiku extrahiert den Zeitraum aus Description + `EXTRA_DESC_COLS`, die Pipeline normalisiert ihn. Trennzeichen Jahr/Monat = `:`, Trennzeichen Start/Ende = `-`.
 
@@ -206,6 +210,7 @@ Eingabe (CSV/XLSX)
 │  Phase 1a — Normalisierung (Haiku)    │
 │  Batch à 20 Zeilen                    │
 │  → title, country, city, location     │
+│  → geocoding_queries (Lokalsprache)   │
 │  Cache: norm_cache (SHA-256 des Inputs)│
 └────────────────┬──────────────────────┘
                  │
@@ -229,8 +234,9 @@ Eingabe (CSV/XLSX)
 ┌───────────────────────────────────────┐
 │  Phase 2 — GeoStack                   │
 │  Pro Datensatz, Entscheidungsbaum     │
-│  (siehe Abschnitt 4)                  │
+│  (siehe Abschnitt 5)                  │
 │  → Lat, Lon, Quality-Score            │
+│  → Ambiguous-Flag                     │
 └────────────────┬──────────────────────┘
                  │
                  ▼
@@ -249,6 +255,9 @@ Claude Haiku extrahiert aus Titel und Beschreibung:
 | `city` | Stadt oder Ortschaft inkl. Disambiguierungssuffix (z.B. `"Bingen am Rhein"` statt `"Bingen"`) |
 | `location` | Spezifischer benannter Ort in Originalsprache (z.B. `"Schloss Vaduz"`, `"Montalin Schulhaus"`) — leer wenn nur Stadt, Portrait oder generische Szene |
 | `location_type` | Generischer Gebäudetyp im Originalwort wenn `location` leer (z.B. `"Bahnhof"`, `"Kirche"`) — kombiniert mit city zu Nominatim-Query |
+| `geocoding_queries` | 1–3 fertige Nominatim-Suchstrings in Lokalsprache (z.B. `"Kathedrale Genève"` → `["Cathédrale Saint-Pierre Genève", "cathédrale Genève"]`) — leer wenn `location` leer |
+
+**geocoding_queries** sind der Schlüssel für Sprachflexibilität: Haiku übersetzt generische Begriffe in die Lokalsprache und liefert offizielle OSM-Namen. Damit findet Nominatim POIs auch wenn der Originaltitel auf Deutsch steht aber der OSM-Eintrag auf Französisch/Italienisch/Romanisch ist.
 
 Regeln für `location`:
 - Originalsprache, nie übersetzen
@@ -293,15 +302,9 @@ Step 0   Overrides (manuell)
 Step 1   geo_cache
            Persistent SQLite — Ergebnis bereits berechnet
            ↓ miss
-           [Proximity-Anker bestimmen]
-           find_city(city, country_code, admin1_hint) → near=(lat,lon)
-           Falls kein PPL-Eintrag: find_precise(city) → near aus geogr. Feature
-           (z.B. "Pilatus" ist ein Berg [MTS], kein Ort — trotzdem als Anker nutzbar)
-           region → admin1_hint via region_to_admin1() für Disambiguierung
-           ↓
-           [Proximity-Anker + Plausibilitätsprüfung]
-           find_city(city, country_code, admin1_hint) → near=(lat,lon)
-           Bei X/Y-Stadtnamen (z.B. "Bergün/Bravuogn") werden beide Teile versucht
+           [City-Anker bestimmen]
+           find_city(city, country_code, admin1_hint) → (near=(lat,lon), ambiguous)
+             ambiguous=True wenn mehrere Kandidaten > 30 km voneinander
            Falls kein PPL-Eintrag: find_precise(city) → near aus geogr. Feature
            Falls near=None aber region bekannt: admin1-Zentroid als Fallback-Anker
            city_radius: dynamisch nach Population (Flerden 2 km / Zürich 15 km / Tokyo 25 km)
@@ -312,7 +315,7 @@ Step 1   geo_cache
 Step 2   GEO DB precise (GeoNames)
            find_precise(location, country_code, near, admin1_hint)
            Typen: S (Spots), T (Terrain), H (Hydrography), V (Vegetation), L (Locality)
-           Radius: max(city_radius × 4, 20 km) — geo_feature: max(city_radius × 6, 15 km)
+           Radius: max(city_radius × 2, 5 km) — geo_feature: max(city_radius × 6, 15 km)
            Bbox-Check: Treffer ausserhalb Landesgrenzen → verwerfen
            Disambiguierung: admin1_hint + Alt-Name-Anzahl als Fame-Proxy
            → Score 5 (kein Fallback)
@@ -323,30 +326,63 @@ Step 2.5 TGN (Getty Thesaurus of Geographic Names)
            Radius + Bbox-Check wie Step 2
            → Score 5 (kein Fallback)
            ↓ miss
-Step 3   Nominatim (OpenStreetMap)
+Step 2.7 Country DB precise (länderspezifische GeoNames-DB)
+           Nur wenn Country DB für das erkannte Land vorhanden (CH, DE, FR, IT, AT, NO)
+           Vollständige Alternativnamen inkl. Regionalsprachen (Romanisch, Ladinisch,
+           Nynorsk, Low German…) — präziser als globale GeoNames-DB
+           Radius: max(city_radius × 2, 5 km)
+           Graceful skip wenn keine DB für das Land vorhanden
+           → Score 5 (kein Fallback)
+           ↓ miss
+Step 3   Nominatim (OpenStreetMap) — bounded wenn City-Anker vorhanden
            Nur wenn city ODER location bekannt (kein Aufruf ohne Anker)
            Generische Titel ohne location_type → überspringen (→ Step 4)
-           Query: location + region + country wenn kein Stadtanker (verhindert
-             falsche Homonym-Treffer, z.B. "Flüelastrasse" in Zürich statt GR)
-           Proximity-Check mit city_radius (geo_feature: 4× erweitert):
-             - Stadtanker vorhanden: Treffer > city_radius → verwerfen, retry
-             - Nur admin1-Zentroid: Treffer > 100 km → verwerfen, retry
-           Bbox-Check: Treffer ausserhalb Landesgrenzen → verwerfen
-           Précis-Treffer → Score 4
+
+           MIT City-Anker (near bekannt):
+             search_bounded(location, near, city_radius) — Ergebnis innerhalb Radius garantiert
+             → Retry: search_bounded(location + city, near, city_radius)
+             → Retry: search_bounded(geocoding_queries[i], near, city_radius) — Lokalsprache!
+             Bounded-Ergebnisse brauchen keinen Proximity-Check (bereits eingegrenzt)
+
+           OHNE City-Anker:
+             Unbounded search mit Region-Hint im Query
+             → Retry mit geocoding_queries[i] unbounded
+             Proximity-Check: Treffer > 100 km von admin1-Zentroid → verwerfen
+
+           Präzis-Treffer → Score 4 | Nicht-präzis → weiter zu Step 4
            ↓ miss oder nicht präzis
 Step 4   GEO DB city (Stadtzentrum)
            find_city(city, country_code, admin1_hint)
+           Gibt (city_row, ambiguous) zurück — ambiguous propagiert in GeoResult
            Bbox-Check: Treffer ausserhalb Landesgrenzen → verwerfen
            admin1_hint aus region-Feld → disambiguiert gleichnamige Orte
            Typ P + ADM3/ADM4-Fallback
            → Score 3 (Fallback = True)
            ↓ miss
-Step 5   Nominatim city-only (für Länder mit schlechter GEO-DB-Abdeckung)
+Step 4.5 Country DB city (Stadtzentrum via Country DB)
+           Fallback wenn GEO DB Stadt nicht kennt
+           → Score 3 (Fallback = True)
+           ↓ miss
+Step 5   Nominatim city-only
            Nicht-präziser Nominatim-Treffer aus Step 3 → Score 2 (Fallback = True)
-           oder neuer city+country-Query → Score 2
+           oder früh geholter city-Anker via Nominatim → Score 2
            ↓ miss
 →          Score 0 — nicht gefunden
 ```
+
+### Bounded Nominatim
+
+Wenn ein City-Anker bekannt ist (`near=(lat, lon)`), wird Nominatim mit `viewbox` + `bounded=1` aufgerufen. Das bedeutet: Nominatim liefert **nur Ergebnisse innerhalb des Radius**, egal wie unklar der Query-String ist.
+
+Praktische Konsequenz: `"Kathedrale"` (Deutsch) gebounded auf Genève → findet `"Cathédrale Saint-Pierre"`. Ohne Bounded würde Nominatim `"Cathédrale Notre-Dame de Paris"` zurückgeben.
+
+Die Bounded-Queries haben eigene Cache-Keys (inkl. Koordinaten und Radius) — sie stören bestehende unbounded Cache-Einträge nicht.
+
+### Ambiguous City
+
+`find_city()` gibt neu `(row, is_ambiguous)` zurück. `is_ambiguous=True` wenn der zweitbeste Kandidat > 30 km vom besten Kandidaten liegt — das deutet auf zwei verschiedene Orte mit demselben Namen hin (z.B. `"Gardone"` → Gardone Riviera oder Gardone Val Trompia).
+
+**Verhalten:** Die Pipeline nimmt trotzdem den besten Kandidaten (höchste Population + region-Hint), setzt aber `GeoResult.ambiguous=True`. Im Output: `[?ambig]` im human-Modus, `Ambiguous=True` im CSV. Score und Koordinaten bleiben unverändert.
 
 ### Geographic Feature Detection
 
@@ -370,13 +406,13 @@ Wenn `location` leer ist, kein `location_type` gesetzt wurde, und der Titel auss
 
 Der Proximity-Radius richtet sich nach der Stadtgrösse (aus GeoNames `population`):
 
-| Stadttyp | Beispiel | Radius | GeoNames-Radius |
-|---|---|---|---|
-| Weiler | Flerden (~150) | 2 km | 20 km |
-| Kleinstadt | Thusis (~3000) | 3 km | 20 km |
-| Regionalstadt | Chur (~36k) | 8 km | 32 km |
-| Grossstadt | Zürich (~415k) | 15 km | 60 km |
-| Metropole | Paris (~2.1M) | 25 km | 100 km |
+| Stadttyp | Beispiel | Radius |
+|---|---|---|
+| Weiler | Flerden (~150) | 2 km |
+| Kleinstadt | Thusis (~3000) | 3 km |
+| Regionalstadt | Chur (~36k) | 8 km |
+| Grossstadt | Zürich (~415k) | 15 km |
+| Metropole | Paris (~2.1M) | 25 km |
 
 Geografische Features (Schluchten, Pässe, Berge, Seen — erkannt durch Keyword-Matching auf `location`) erhalten 4–6× mehr Radius, weil sie naturgemäss ausserhalb des Siedlungsgebiets liegen. Gebäude (Hotels, Kirchen, Brücken) bleiben beim engen Stadtradius.
 
@@ -401,26 +437,79 @@ Haiku inferiert Region auch aus geographischem Kontext, wenn sie nicht explizit 
 
 | Score | Quelle | Fallback | Bedeutung |
 |---|---|---|---|
-| 5 | GEO DB / TGN | Nein | Präziser Named Place |
+| 5 | GEO DB / TGN / Country DB | Nein | Präziser Named Place |
 | 4 | Nominatim | Nein | Präziser externer Treffer |
-| 3 | GEO DB / Override | Ja | Stadtzentrum aus GEO DB |
+| 3 | GEO DB / Country DB / Override | Ja | Stadtzentrum |
 | 2 | Nominatim | Ja | Stadtzentrum via Nominatim |
 | 0 | — | — | Nicht gefunden |
 
+`Ambiguous=True` kann bei jedem Score auftreten — es beschreibt die Qualität des City-Ankers, nicht des Treffers selbst.
+
 ---
 
-## 6. Cache-Architektur
+## 6. Country-DBs — länderspezifische Datenbanken
+
+Ergänzung zur globalen GeoNames-DB mit vollständigen Alternativnamen pro Land (Romanisch, Ladinisch, Friulanisch, Nynorsk, Low German…). Schneller lokaler Ersatz für viele Nominatim-Calls.
+
+**Graceful degradation:** Fehlt eine Country-DB für ein Land, wird Step 2.7 still übersprungen — die Pipeline läuft ohne Unterbruch weiter.
+
+### Import
+
+```bash
+# Einzelnes Land
+python -m v4.import_country CH --output /path/to/ch_country.sqlite
+
+# Mehrere Länder auf einmal
+python -m v4.import_country CH DE FR IT AT NO --output-dir /path/to/dir/
+
+# Statistik anzeigen
+python -m v4.import_country CH --check
+
+# .env eintragen (nicht vorhandene Einträge werden ignoriert)
+COUNTRY_DB_CH=/path/to/ch_country.sqlite
+COUNTRY_DB_DE=/path/to/de_country.sqlite
+...
+```
+
+### Unterstützte Länder
+
+| Code | Quellsprachen | Grösse |
+|---|---|---|
+| CH | Romanisch, Französisch, Italienisch, Deutsch | ~11 MB |
+| DE | Low German, Kölnisch, Bairisch | ~28 MB |
+| FR | Okzitanisch, Bretonisch, Korsisch, Elsässisch | ~23 MB |
+| IT | Deutsch (Südtirol), Ladinisch, Friulanisch | ~16 MB |
+| AT | Bairisch | ~6.6 MB |
+| NO | Nynorsk, Bokmål, Sami | ~78 MB |
+
+---
+
+## 7. Cache-Architektur
 
 Alle Caches sind persistente SQLite-Dateien. Ergebnisse werden einmalig berechnet und danach direkt abgerufen.
 
 | Cache-Tabelle | Inhalt | Datei |
 |---|---|---|
-| `norm_cache` | Phase 1a Ergebnisse (title/country/region/city/location) | `cache/locationer.sqlite` |
+| `norm_cache` | Phase 1a Ergebnisse (title/country/region/city/location/geocoding_queries) | `cache/locationer.sqlite` |
 | `meta_cache` | Phase 1b Ergebnisse (periode/urheber/technik) | `cache/locationer.sqlite` |
-| `geo_cache` | Phase 2 Ergebnisse (Koordinaten + Score) | `cache/locationer.sqlite` |
-| `nominatim_cache` | Nominatim-Antworten | `cache/locationer.sqlite` |
+| `geo_cache` | Phase 2 Ergebnisse (Koordinaten + Score + ambiguous) | `cache/locationer.sqlite` |
+| `nominatim_cache` | Nominatim-Antworten (inkl. bounded-Queries mit eigenem Key) | `cache/locationer.sqlite` |
 | TGN-Datenbank | 2.99 Mio. Orte aus Getty TGN | `cache/tgn.sqlite` |
+| Country-DBs | Länderspezifische Alternativnamen | `<dir>/{cc}_country.sqlite` |
 | Overrides | Manuelle Koordinaten + Normalisierungen | `explicit_list/explicit.sqlite` |
+
+### Bounded Nominatim Cache
+
+Bounded-Suchanfragen werden mit einem eigenen Cache-Key gespeichert (`bounded|lat,lon,radius|query`), damit sie unabhängig von unbounded-Einträgen verwaltet werden können. Bounded Misses werden nicht gecacht — erlaubt Retry bei geändertem Radius.
+
+### Cache leeren — wann was
+
+| Cache | Wann leeren |
+|---|---|
+| `norm_cache` | Wenn Haiku-Prompt geändert wurde |
+| `geo_cache` | Wenn GeoStack-Logik geändert wurde (Radii, bounded search) |
+| `nominatim_cache` | Selten — nur bei fundamentalen API-Änderungen |
+| `meta_cache` | Fast nie — Periode/Urheber/Technik ändern sich nicht |
 
 ### Auto-Resume
 
@@ -431,11 +520,9 @@ Alle Caches sind persistente SQLite-Dateien. Ergebnisse werden einmalig berechne
 python -m v4 v4/ZIN_complete.csv
 ```
 
-`--chunk-size 20` entspricht genau der internen Haiku-Batch-Grösse → keine Zusatzkosten gegenüber grösseren Chunk-Sizes. Maximaler Datenverlust bei Crash: 19 Zeilen.
-
 ---
 
-## 7. Overrides — manuelle Korrekturen
+## 8. Overrides — manuelle Korrekturen
 
 Overrides haben höchste Priorität (Step 0, vor allen Datenbanken). Zwei Typen:
 
@@ -485,7 +572,7 @@ Overrides werden ohne automatische Validierung zurückgegeben (kein Country-Chec
 
 ---
 
-## 8. TGN-Datenbank — Import
+## 9. TGN-Datenbank — Import
 
 Einmalig ausführen. Liest direkt aus dem lokalen ZIP, kein vollständiges Entpacken nötig (~10–15 Minuten).
 
@@ -511,7 +598,7 @@ Ergebnis nach Import: ~2.99 Mio. Orte, davon ~2.97 Mio. mit Koordinaten, ~2.3 Mi
 
 ---
 
-## 9. Konfiguration (.env)
+## 10. Konfiguration (.env)
 
 Die `.env`-Datei liegt im Projektverzeichnis neben `requirements.txt`. Hier werden alle Laufzeit-Parameter definiert — insbesondere auch die inputfile-spezifischen Anpassungen wie `EXTRA_DESC_COLS`.
 
@@ -523,6 +610,15 @@ CACHE_PATH=cache/locationer.sqlite    # Default
 OVERRIDES_PATH=explicit_list/explicit.sqlite  # Default
 NOMINATIM_URL=https://nominatim.openstreetmap.org  # Default
 NOMINATIM_USER_AGENT=locationer/4.0 (email)  # Pflicht für public Nominatim
+
+# Country-spezifische DBs (optional — fehlende werden ignoriert)
+COUNTRY_DB_CH=/path/to/ch_country.sqlite
+COUNTRY_DB_DE=/path/to/de_country.sqlite
+COUNTRY_DB_FR=/path/to/fr_country.sqlite
+COUNTRY_DB_IT=/path/to/it_country.sqlite
+COUNTRY_DB_AT=/path/to/at_country.sqlite
+COUNTRY_DB_NO=/path/to/no_country.sqlite
+
 EXTRA_DESC_COLS=PeriodeRAW            # Optional, siehe unten
 COLLECTION_BBOX=43.0,62.0,-5.0,20.0  # Optional, siehe unten
 ```
@@ -552,36 +648,15 @@ Der wichtigste sammlungsspezifische Parameter. Er erfüllt **zwei unabhängige R
 
 Wenn `country` bekannt ist, greifen die länderspezifischen Bounding Boxes — `COLLECTION_BBOX` ist dann vollständig inaktiv. Bilder aus Ägypten, Südafrika oder Kanada werden korrekt geocodiert solange Haiku das Land erkennt.
 
-**Wie definiere ich die richtige Bbox?**
-
-Faustregel: die Bbox soll den **geografischen Schwerpunkt** der Sammlung abdecken — grosszügig genug für den Randbereich, eng genug um falsche Weltregionen auszuschliessen. Für eine Schweizer Sammlung mit etwas Nachbarländer-Abdeckung:
-
-```
-min_lat = südlichster legitimer Breitengrad (Sizilien? Nordafrika?)
-max_lat = nördlichster (Skandinavien?)
-min_lon = westlichster (Atlantik?)
-max_lon = östlichster (Türkei? Russland?)
-```
-
-Praktisch: QA-Karte öffnen, alle Score-0-Treffer ausserhalb Europa identifizieren. Die Bbox so eng setzen, dass diese ausgeschlossen sind, aber alle legitimen Treffer drin bleiben.
-
 | Sammlung | Empfohlener Wert | Abdeckung |
 |---|---|---|
 | ZIN (Schweiz + Europa) | `43.0,62.0,-5.0,20.0` | CH/DE/AT/FR/IT/NO + Westeuropa |
 | Nordafrika | `18.0,38.0,-5.0,40.0` | Maghreb + Ägypten |
 | Global | *(leer lassen)* | kein Filter, nur Country-Bbox greift |
 
-```
-# ZIN-Konfiguration:
-COLLECTION_BBOX=43.0,62.0,-5.0,20.0
-```
-
-Ablauf bei Treffer ausserhalb der Box (wenn country=""):
-→ Treffer verworfen → nächster GeoStack-Step → ggf. Score 0
-
 ---
 
-## 10. Testmetrik
+## 11. Testmetrik
 
 Wenn `input` identisch mit `v4/TestFile.csv` ist, berechnet die Pipeline automatisch eine Qualitätsmetrik und schreibt sie in `TESTLOG.md`.
 
@@ -595,14 +670,14 @@ Voraussetzung: `TestFile.csv` muss Spalten `lat_true`/`lon_true` mit verifiziert
 | >10km            | Treffer > 10 km (vermutlich falsche Zuordnung)
 | kein             | Keine Koordinaten gefunden (Score 0)
 | FB%              | Anteil Fallback-Treffer (Stadtzentrum statt exakter Ort)
-| S5%              | Anteil Score-5-Treffer (GEO DB / TGN precise)
+| S5%              | Anteil Score-5-Treffer (GEO DB / TGN / Country DB precise)
 | Ext              | Anzahl Nominatim-Calls (nicht aus Cache)
 | n/a→∅            | Zeilen ohne Referenzkoordinaten (ok/bad)
 ```
 
 ---
 
-## 11. Kostenabschätzung
+## 12. Kostenabschätzung
 
 | Datenmenge | Claude Haiku (Phase 1a+1b) | TGN | Nominatim | Total |
 |---|---|---|---|---|
@@ -611,11 +686,11 @@ Voraussetzung: `TestFile.csv` muss Spalten `lat_true`/`lon_true` mit verifiziert
 
 Haiku-Calls: ceil(N/20) pro Phase × 2 Phasen. Bei 1000 Zeilen ~100 Calls. Gemessene Kosten ZIN_1000: ~$0.10.
 
-*Nominatim public: 1 req/s → bei 700k unique Queries ~194h. Self-hosted empfohlen für grosse Volumen. Cache hält alle Ergebnisse — Wiederholungsläufe kosten nichts.
+*Nominatim public: 1 req/s → bei 700k unique Queries ~194h. Self-hosted empfohlen für grosse Volumen. Cache hält alle Ergebnisse — Wiederholungsläufe kosten nichts. Bounded-Queries haben eigene Cache-Keys und werden separat gecacht.
 
 ### Output-Anzeige
 
-Pro Zeile: `[N:n]` zeigt kumulierte Nominatim-Calls. Am Ende:
+Pro Zeile: `[N:n]` zeigt kumulierte Nominatim-Calls, `[?ambig]` zeigt mehrdeutige City-Zuordnung. Am Ende:
 ```
 Haiku calls (Phase 1a+1b): 2
 Nominatim calls:           14
@@ -623,7 +698,7 @@ Nominatim calls:           14
 
 ---
 
-## 12. QA-Karte
+## 13. QA-Karte
 
 Die Karte wird **automatisch nach jedem Lauf** generiert und im Browser geöffnet. Manueller Aufruf:
 
@@ -631,7 +706,7 @@ Die Karte wird **automatisch nach jedem Lauf** generiert und im Browser geöffne
 python -m v4.map v4/ZIN_complete_geo.csv
 ```
 
-**Popup-Inhalt:** Titel, City, Country, Score, Periode, Urheber, Δ-Abweichung, CSV-Zeilennummer, klickbare Links (URL-Spalten automatisch erkannt).
+**Popup-Inhalt:** Titel, City, Country, Score, Periode, Urheber, Δ-Abweichung, CSV-Zeilennummer, klickbare Links (URL-Spalten automatisch erkannt). `[?]`-Badge bei ambiguous.
 
 **QA-Annotationen:** Jedes Popup enthält:
 - ❌ **Fehler** — falsche Koordinaten, muss korrigiert werden
@@ -650,7 +725,7 @@ Mehrere Personen annotieren lokal je eine eigene CSV, die danach zusammengeführ
 
 ---
 
-## 13. Dateistruktur
+## 14. Dateistruktur
 
 ```
 locationer-v4/
@@ -659,9 +734,11 @@ locationer-v4/
 │   ├── input_normalizer.py  Phase 1a/1b/1c (Haiku + TGN-Lookup)
 │   ├── geostack.py          Phase 2: Entscheidungsbaum
 │   ├── geo_db.py            GeoNames SQLite Interface
+│   ├── country_db.py        Country-DB Interface (CH/DE/FR/IT/AT/NO)
+│   ├── import_country.py    Country-DB Import (GeoNames → SQLite)
 │   ├── tgn_db.py            TGN SQLite Interface
 │   ├── import_tgn.py        TGN Import (ZIP → SQLite)
-│   ├── nominatim.py         Nominatim REST API + Cache
+│   ├── nominatim.py         Nominatim REST API + Cache (inkl. search_bounded)
 │   ├── overrides.py         Override CLI
 │   ├── explicit_store.py    Override SQLite Interface
 │   ├── cache.py             Cache SQLite Interface
