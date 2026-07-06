@@ -247,12 +247,14 @@ class GeoStack:
             # Catches stale entries where Nominatim returned a canton/region centroid
             # instead of the actual city centre (e.g. "Kanton Luzern" → Hinterland).
             prox_ok = True
-            if bbox_ok and cached.source == "nominatim" and self.geo_db:
+            if bbox_ok and self.geo_db:
                 lookup = record.city or cached.match_name
                 city_row_c, _ = self.geo_db.find_city(lookup, cc) if lookup else (None, False)
                 if city_row_c:
                     dist = _dist_km(cached.lat, cached.lon, city_row_c["lat"], city_row_c["lon"])
-                    prox_ok = dist <= _city_radius_km(city_row_c)
+                    geo_feat_c = _is_geo_feature(record.location or "")
+                    base_r = _city_radius_km(city_row_c)
+                    prox_ok = dist <= max(base_r * (6 if geo_feat_c else 2), 15 if geo_feat_c else 5)
             if bbox_ok and prox_ok:
                 cached.debug_info = [f"cache hit: {cached.match_name or '—'}"]
                 return cached
@@ -480,18 +482,9 @@ class GeoStack:
                         if nm:
                             break
             else:
-                # No city anchor — fall back to unbounded search with region disambiguation.
-                if record.location and not near and record.region:
-                    nm_query = " ".join(filter(None, [record.location, record.region, record.country]))
-                elif record.location:
-                    nm_query = record.location
-                else:
-                    nm_query = query
-                dbg.append(f"Nominatim query: {nm_query!r}")
-                nm = self.nominatim.search(nm_query)
-                if nm is None and record.location and (record.city or record.country):
-                    dbg.append(f"Nominatim retry: {query!r}")
-                    nm = self.nominatim.search(query)
+                # No city anchor — unbounded Nominatim skipped (no anchor = no reliable result).
+                dbg.append("Nominatim: skipped (no city anchor)")
+                nm = None
 
             if self.nominatim._last_error:
                 dbg.append(f"Nominatim error: {self.nominatim._last_error}")
@@ -555,24 +548,6 @@ class GeoStack:
         if ext_result:
             dbg.append(f"external not precise: {ext_result['name']}")
 
-        # ── Step 3.5: geocoding_queries unbounded fallback ───────────────────
-        # When there is no city anchor (near=None), the bounded search above was
-        # skipped. Try each Haiku-generated query unbounded as a last precision attempt.
-        if not near and record.geocoding_queries and record.location:
-            for gq in record.geocoding_queries:
-                dbg.append(f"geocoding_query unbounded: {gq!r}")
-                nm_gq = self.nominatim.search(gq)
-                if nm_gq and nm_gq.get("precise"):
-                    self.ext_count += 1
-                    ok = (not country_code or _within_country_bbox(nm_gq["lat"], nm_gq["lon"], country_code))
-                    if ok:
-                        result = GeoResult(lat=nm_gq["lat"], lon=nm_gq["lon"], quality_score=4,
-                                           fallback=False, source="nominatim",
-                                           match_name=nm_gq["name"],
-                                           ambiguous=city_ambiguous)
-                        dbg.append(f"geocoding_query → Nominatim: {nm_gq['name']}")
-                        return self._store(cache_key, result, dbg)
-
         # ── Step 5: GEO DB city fallback ──────────────────────────────────────
         # Use city_row (PPL) or geo_feat_city (feature found via find_precise) as fallback.
         if not city_row and geo_feat_city:
@@ -623,5 +598,9 @@ class GeoStack:
 
     def _store(self, key: str, result: GeoResult, dbg: list[str]) -> GeoResult:
         result.debug_info = dbg
-        self.cache.set_geo(key, result)
+        parts = key.split("|", 2)
+        self.cache.set_geo(key, result,
+                           location_hint=parts[0] if len(parts) > 0 else "",
+                           city_hint=parts[1] if len(parts) > 1 else "",
+                           country_hint=parts[2] if len(parts) > 2 else "")
         return result

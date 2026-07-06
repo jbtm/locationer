@@ -36,7 +36,8 @@ def _hav(lat1, lon1, lat2, lon2):
 
 
 def run_pipeline():
-    r = subprocess.run([sys.executable, "-m", "v3", TESTFILE], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-m", "v4", TESTFILE], capture_output=True, text=True,
+                       input="\n\n")
     for line in r.stdout.splitlines():
         if line.startswith("Google requests:"):
             return int(line.split(":")[1].strip())

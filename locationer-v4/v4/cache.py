@@ -31,15 +31,18 @@ class Cache:
                 created_at         TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS geo_cache (
-                key           TEXT PRIMARY KEY,
-                lat           REAL,
-                lon           REAL,
-                quality_score INTEGER,
-                fallback      INTEGER,
-                source        TEXT,
-                match_name    TEXT,
-                ambiguous     INTEGER DEFAULT 0,
-                created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+                key            TEXT PRIMARY KEY,
+                lat            REAL,
+                lon            REAL,
+                quality_score  INTEGER,
+                fallback       INTEGER,
+                source         TEXT,
+                match_name     TEXT,
+                ambiguous      INTEGER DEFAULT 0,
+                location_hint  TEXT,
+                city_hint      TEXT,
+                country_hint   TEXT,
+                created_at     TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS meta_cache (
                 key        TEXT PRIMARY KEY,
@@ -53,6 +56,9 @@ class Cache:
         for stmt in (
             "ALTER TABLE norm_cache ADD COLUMN geocoding_queries TEXT",
             "ALTER TABLE geo_cache  ADD COLUMN ambiguous INTEGER DEFAULT 0",
+            "ALTER TABLE geo_cache  ADD COLUMN location_hint TEXT",
+            "ALTER TABLE geo_cache  ADD COLUMN city_hint TEXT",
+            "ALTER TABLE geo_cache  ADD COLUMN country_hint TEXT",
         ):
             try:
                 self.conn.execute(stmt)
@@ -107,15 +113,18 @@ class Cache:
             ambiguous=bool(row[6]) if row[6] is not None else False,
         )
 
-    def set_geo(self, query: str, result: GeoResult):
+    def set_geo(self, query: str, result: GeoResult,
+                location_hint: str = "", city_hint: str = "", country_hint: str = ""):
         self.conn.execute(
             "INSERT OR REPLACE INTO geo_cache "
-            "(key,lat,lon,quality_score,fallback,source,match_name,ambiguous) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(key,lat,lon,quality_score,fallback,source,match_name,ambiguous,"
+            "location_hint,city_hint,country_hint) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 _key(query), result.lat, result.lon, result.quality_score,
                 int(result.fallback), result.source, result.match_name,
                 int(result.ambiguous),
+                location_hint or None, city_hint or None, country_hint or None,
             ),
         )
         self.conn.commit()

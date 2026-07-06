@@ -138,16 +138,16 @@ python -m v4 <input> [--mode human|debug] [--output PATH] [--limit N]
 
 ```bash
 # Testlauf, erste 10 Zeilen
-python -m v4 v4/TestFile.csv --limit 10
+venv/bin/python -m v4 v4/TestFile.csv --limit 10
 
 # Voller Lauf mit Chunk-Resuming (sicher bei grossen Dateien)
-python -m v4 v4/ZIN_Complete.csv --chunk-size 500 --output out/zin_geo.csv
+caffeinate -i venv/bin/python -m v4 v4/ZIN_complete_allFields.csv --output out/zin_geo.csv
 
-# Detaillierte Entscheidungsausgabe für Debugging
-python -m v4 v4/TestFile.csv --mode debug --limit 5
+# Detaillierte Entscheidungsausgabe für Debugging eines einzelnen Records
+venv/bin/python -m v4 v4/TestFile.csv --mode debug --limit 5
 
 # Andere GEO DB (z.B. Europa-only)
-python -m v4 meinedaten.csv --geo-db /Volumes/LCMT_JBTM/LocationerGeo/locationer_geo_EUROPA.sqlite
+venv/bin/python -m v4 meinedaten.csv --geo-db /Volumes/LCMT_JBTM/LocationerGeo/locationer_geo_EUROPA.sqlite
 ```
 
 ### Eingabeformat
@@ -252,12 +252,14 @@ Claude Haiku extrahiert aus Titel und Beschreibung:
 | `title` | Bereinigter Titel (max. 60 Zeichen, Originalsprache) |
 | `country` | Landesname auf Englisch |
 | `region` | Kanton, Bundesland, Provinz — explizit genannt oder aus geographischem Kontext inferiert (z.B. `"Berninagruppe"` → `"Graubünden"`, `"Jungfrau"` → `"Bern"`) |
-| `city` | Stadt oder Ortschaft inkl. Disambiguierungssuffix (z.B. `"Bingen am Rhein"` statt `"Bingen"`) |
+| `city` | Stadt oder Ortschaft inkl. Disambiguierungssuffix (z.B. `"Bingen am Rhein"` statt `"Bingen"`) — **nur wenn der Stadtname explizit im Input steht**; nie aus Region oder Geografie inferiert |
 | `location` | Spezifischer benannter Ort in Originalsprache (z.B. `"Schloss Vaduz"`, `"Montalin Schulhaus"`) — leer wenn nur Stadt, Portrait oder generische Szene |
 | `location_type` | Generischer Gebäudetyp im Originalwort wenn `location` leer (z.B. `"Bahnhof"`, `"Kirche"`) — kombiniert mit city zu Nominatim-Query |
-| `geocoding_queries` | 1–3 fertige Nominatim-Suchstrings in Lokalsprache (z.B. `"Kathedrale Genève"` → `["Cathédrale Saint-Pierre Genève", "cathédrale Genève"]`) — leer wenn `location` leer |
+| `geocoding_queries` | 1–3 fertige Nominatim-Suchstrings in Lokalsprache (z.B. `"Kathedrale Genève"` → `["cathédrale Genève", "Kathedrale Genf"]`) — leer wenn `location` leer |
 
-**geocoding_queries** sind der Schlüssel für Sprachflexibilität: Haiku übersetzt generische Begriffe in die Lokalsprache und liefert offizielle OSM-Namen. Damit findet Nominatim POIs auch wenn der Originaltitel auf Deutsch steht aber der OSM-Eintrag auf Französisch/Italienisch/Romanisch ist.
+**geocoding_queries** sind der Schlüssel für Sprachflexibilität: Haiku übersetzt den generischen Gebäudetyp in die Lokalsprache und hängt die City an. Damit findet Nominatim POIs auch wenn der Originaltitel auf Deutsch steht aber der OSM-Eintrag auf Französisch/Italienisch/Romanisch ist.
+
+**Wichtige Einschränkung:** Haiku darf in `geocoding_queries` **keine spezifischen Eigennamen erfinden** die nicht im Input stehen. Erlaubt: `"chiesa Trafoi"` (Typ + City in Lokalsprache). Nicht erlaubt: `"Kapelle Unsere Liebe Frau Trafoi"` (erfundener Eigenname).
 
 Regeln für `location`:
 - Originalsprache, nie übersetzen
@@ -345,9 +347,9 @@ Step 3   Nominatim (OpenStreetMap) — bounded wenn City-Anker vorhanden
              Bounded-Ergebnisse brauchen keinen Proximity-Check (bereits eingegrenzt)
 
            OHNE City-Anker:
-             Unbounded search mit Region-Hint im Query
-             → Retry mit geocoding_queries[i] unbounded
-             Proximity-Check: Treffer > 100 km von admin1-Zentroid → verwerfen
+             Nominatim wird nicht aufgerufen — kein Anker, kein zuverlässiges Ergebnis.
+             Ausnahme: Geo-Features (Berg, Pass, Gletscher…) → GEO DB / TGN in Step 2/2.5
+             (Score 5 wenn Treffer, Score 0 wenn nicht)
 
            Präzis-Treffer → Score 4 | Nicht-präzis → weiter zu Step 4
            ↓ miss oder nicht präzis
@@ -420,8 +422,10 @@ Geografische Features (Schluchten, Pässe, Berge, Seen — erkannt durch Keyword
 
 Jeder Cache-Hit wird vor der Rückgabe gegen die aktuellen Checks validiert:
 1. **Bbox-Check** (Country oder Collection) — verwirft Pakistan/Vietnam-Altlasten
-2. **Proximity-Check** für Nominatim-Precise-Hits — verwirft Altlasten mit alten Thresholds
+2. **Proximity-Check** für alle Quellen (GEO DB, TGN, Country DB, Nominatim) — verwirft Altlasten wo der Treffer zu weit von der bekannten City entfernt liegt. Radius: `city_radius × 6` für Geo-Features, `city_radius × 2` für normale Orte.
 3. **Fallback-Bypass** — wenn `location` bekannt ist und der Cache nur einen Fallback (Score 3) enthält, wird neu geocodiert damit Nominatim/GeoNames einen präzisen Treffer versuchen kann
+
+**Audit-Fähigkeit:** `geo_cache` speichert neben den Koordinaten auch `location_hint`, `city_hint`, `country_hint` — die Rohkomponenten des Cache-Keys. Damit kann ein zukünftiges Audit-Tool Einträge auf Plausibilität prüfen (Distanz zwischen Koordinaten und bekannter City) ohne den Hash rückwärts auflösen zu müssen.
 
 ### Region-Disambiguierung
 
