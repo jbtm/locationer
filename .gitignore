@@ -18,6 +18,10 @@ Archiv/
 # `**/` ist hier Pflicht: ein Muster mit Schrägstrich in der Mitte ist an das
 # Verzeichnis der .gitignore gebunden.  `out/*.csv` hätte nur `<Wurzel>/out/`
 # erfasst und `locationer-v4/out/` glatt durchgelassen.
+# Laufergebnisse, die in v4/ statt in out/ liegen — gleiche Logik.
+v4/ZIN_complete_allFields_geo*.csv
+v4/ZIN_complete_allFields_geo*.html
+
 **/out/*.csv
 **/out/*.html
 
