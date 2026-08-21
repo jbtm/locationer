@@ -21,6 +21,20 @@ Archiv/
 **/out/*.csv
 **/out/*.html
 
+# Geheimnisse.  `.env` und `.env.local` standen schon in
+# locationer-v4/.gitignore — `.env.backup` fiel durch das Raster und lag seit
+# dem 19.05.2026 mit gültigem ANTHROPIC_API_KEY auf GitHub.  Deshalb hier alles
+# mit `.env`-Anfang, und nur das Beispiel ausdrücklich zurückgeholt.
+.env*
+!.env.example
+
+# Altbestände: eigene Repos bzw. Reste davon, die nichts im Hauptrepo zu
+# suchen haben.  locationer-v3 hing als Gitlink ohne .gitmodules darin — ein
+# halber Submodul, den niemand registriert hatte.  gitALT-wohlMuell ist ein
+# totes .git-Verzeichnis (0 lesbare Commits).  Beide bleiben auf der Platte.
+locationer-v3/
+gitALT-wohlMuell/
+
 # Python
 venv/
 .venv/
