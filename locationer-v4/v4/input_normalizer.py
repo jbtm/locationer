@@ -193,7 +193,18 @@ class InputNormalizer:
     @property
     def client(self) -> anthropic.Anthropic:
         if self._client is None:
-            self._client = anthropic.Anthropic()
+            # Zeitgrenze und Wiederholungen ausdruecklich setzen.
+            #
+            # Ohne sie blockiert eine Verbindung, die zwar steht, aber nichts
+            # mehr liefert, den GESAMTEN Lauf — beobachtet am 2026-08-19: der
+            # Prozess hing 32 Minuten an einem einzigen Aufruf, ohne Fehler und
+            # ohne Fortschritt.  Bei 6000 Bildern ist das kein Randfall, sondern
+            # eine Frage der Zeit.
+            #
+            # 60 s ist grosszuegig fuer eine Normalisierung von wenigen hundert
+            # Zeichen; was laenger braucht, ist haengengeblieben und gehoert
+            # abgebrochen und wiederholt.
+            self._client = anthropic.Anthropic(timeout=60.0, max_retries=3)
         return self._client
 
     def normalize_batch(self, rows: list[dict]) -> list[NormalizedRecord]:

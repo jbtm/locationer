@@ -1,4 +1,5 @@
 import math
+import os
 import re
 from typing import Optional
 
@@ -17,6 +18,19 @@ from .nominatim import Nominatim
 _COUNTRY_BBOX: dict[str, tuple[float, float, float, float]] = {
     "CH": (45.62, 48.01,  5.76, 10.69),  # actual 45.82–47.81 / 5.96–10.49 + 0.2°
     "LI": (46.85, 47.47,  9.28,  9.84),  # actual 47.05–47.27 / 9.48–9.64 + 0.2°
+    # Zwergstaaten.  Ohne Eintrag entfaellt die Laenderpruefung KOMPLETT
+    # (`bbox is None -> return True`) — ein fehlendes Land ist also gefaehrlicher
+    # als ein grosszuegiges.  Genau daran scheiterte „Monaco, Monte-Carlo":
+    # Nominatim lieferte ein Monte Carlo in Santa Catarina, und nichts hielt es
+    # auf.  Ihre Namen kommen weltweit vor (San Marino in Italien und Amerika,
+    # Andorra in Spanien, Valletta mehrfach), deshalb sind gerade sie auf die
+    # Schranke angewiesen.
+    "MC": (43.52, 43.95,  7.21,  7.64),  # actual 43.72–43.75 / 7.41–7.44 + 0.2°
+    "SM": (43.69, 44.19, 12.20, 12.72),  # actual 43.89–43.99 / 12.40–12.52 + 0.2°
+    "AD": (42.23, 42.86,  1.21,  1.99),  # actual 42.43–42.66 / 1.41–1.79 + 0.2°
+    "VA": (41.70, 42.11, 12.25, 12.66),  # actual 41.90–41.91 / 12.45–12.46 + 0.2°
+    "MT": (35.59, 36.28, 13.98, 14.78),  # actual 35.79–36.08 / 14.18–14.58 + 0.2°
+    "GI": (35.91, 36.36, -5.57, -5.14),  # actual 36.11–36.16 / -5.37–-5.34 + 0.2°
     "AT": (46.18, 49.22,  9.33, 17.36),  # actual 46.38–49.02 / 9.53–17.16 + 0.2°
     "DE": (46.87, 55.26,  5.67, 15.23),  # actual 47.27–55.06 / 5.87–15.03 + 0.2°
     "FR": (41.13, 51.30, -5.25,  9.76),  # actual 41.33–51.10 / -5.05–9.56 + 0.2°
@@ -145,10 +159,22 @@ def _city_radius_km(city_row) -> float:
     if pop >   5_000: return  5.0
     if pop >   1_000: return  3.0
     return 2.0
-# Wikidata disabled: public SPARQL endpoint (Blazegraph) times out on CONTAINS()
-# queries because it lacks efficient full-text indexes → sequential scan over
-# millions of labels. Re-enable if a local Wikidata instance is available.
-# from .wikidata import Wikidata
+# Wikidata laeuft jetzt ueber die Such-API (wbsearchentities), nicht mehr ueber
+# SPARQL.  Der oeffentliche SPARQL-Endpunkt lief bei CONTAINS()-Abfragen in
+# Zeitueberschreitungen — ihm fehlt ein Volltextindex, er scannt Millionen von
+# Bezeichnungen der Reihe nach.  Die Such-API ist genau dafuer gebaut und kennt
+# zusaetzlich Aliasnamen, worauf es hier ankommt.
+from .wikidata import Wikidata
+
+# Suchsprache je Land.  wbsearchentities gewichtet Treffer nach Sprache; fuer ein
+# italienisches Bauwerk ist die italienische Bezeichnung die richtige Anfrage.
+_WD_LANG = {"CH": "de", "DE": "de", "AT": "de", "LI": "de",
+            "IT": "it", "FR": "fr", "ES": "es", "PT": "pt", "NL": "nl",
+            "GB": "en", "US": "en", "IE": "en"}
+
+
+def _wikidata_lang(country_code: "str | None") -> str:
+    return _WD_LANG.get((country_code or "").upper(), "en")
 
 # Generic title words that indicate no specific named location — skip external calls,
 # go straight to city fallback. Saves ~25% of Wikidata/Nominatim calls for ZIN-style data.
@@ -199,6 +225,7 @@ class GeoStack:
         tgn_db=None,
         collection_bbox: "tuple[float,float,float,float] | None" = None,
         country_dbs: "dict[str, CountryDB] | None" = None,
+        wikidata: "Wikidata | None" = None,
     ):
         self.geo_db          = geo_db
         self.cache           = cache
@@ -208,7 +235,9 @@ class GeoStack:
         self.overrides       = overrides
         self.collection_bbox = collection_bbox
         self.country_dbs     = country_dbs or {}
+        self.wikidata        = wikidata
         self.ext_count = 0  # Nominatim calls
+        self.wd_count  = 0  # Wikidata hits
 
     def geocode(self, record: NormalizedRecord) -> GeoResult:
         # Strip canton/region prefixes that may survive in old norm-cache hits
@@ -407,7 +436,16 @@ class GeoStack:
                 if near:
                     dist = _dist_km(tgn_lat, tgn_lon, near[0], near[1])
                     tgn_radius = max(city_radius * (6 if geo_feature else 4), 20 if not geo_feature else 15)
-                    if dist > tgn_radius:
+                    # Coarse TGN coordinates (1 decimal place ≈ ±11 km) are unreliable
+                    # for rivers/large areas whose centroid may be far from the queried city.
+                    # Reject only when coarse AND significantly far from the city anchor.
+                    tgn_coarse = (abs(tgn_lat - round(tgn_lat, 1)) < 1e-4
+                                  or abs(tgn_lon - round(tgn_lon, 1)) < 1e-4)
+                    if tgn_coarse and dist > city_radius * 3:
+                        dbg.append(f"TGN {tgn_row['pref_name']!r} rejected "
+                                   f"(coarse coords, {dist:.0f} km > {city_radius:.0f}×3 km)")
+                        tgn_ok = False
+                    elif dist > tgn_radius:
                         dbg.append(f"TGN {tgn_row['pref_name']!r} rejected ({dist:.0f} km > {tgn_radius:.0f} km)")
                         tgn_ok = False
                 if tgn_ok and country_code and not _within_country_bbox(tgn_lat, tgn_lon, country_code):
@@ -463,7 +501,54 @@ class GeoStack:
             # Radius for bounded search: expanded for geo features (peaks, glaciers, passes).
             nm_radius = max(city_radius * 4, 15) if geo_feature else city_radius
 
-            if near and record.location:
+            # ── Step 3a: Wikidata ─────────────────────────────────────────────
+            # Vor Nominatim, weil Wikidata historische und umgangssprachliche
+            # Namen als Aliasnamen fuehrt: „Stadttheater Zürich" → Opernhaus,
+            # „House of Parliament" → Palace of Westminster, „Napoli Centrale" →
+            # stazione di Napoli Centrale.  Solche Namensgleichungen kennen weder
+            # GeoNames noch Nominatim — genau daran scheiterten die auffaelligen
+            # Fehltreffer.
+            #
+            # Der Ortsanker begrenzt die Suche raeumlich; alles Weitere pruefen
+            # unveraendert dieselben Schranken wie bei Nominatim (Laender-Rahmen,
+            # Regionsabstand weiter unten).  Wikidata bekommt keinen Freibrief.
+            #
+            # WARUM VOR NOMINATIM, UND NICHT NUR ALS RUECKFALL
+            # Gemessen an 1.009 Bildern mit menschlich gesetzter Koordinate
+            # (`ps_geo_point_is_exact = true`), Normalisierung zwischen den
+            # Laeufen geteilt, damit Wikidata der einzige Unterschied ist:
+            #
+            #     561 eigenstaendige Entscheidungen, Verschiebungen ab 250 m
+            #     vor Nominatim   12 besser / 4 schlechter
+            #     nur als Rueckfall     wirkungslos (Median 0.26 statt 0.27 km)
+            #
+            # Der Rueckfall bringt nichts, weil Nominatim fast immer IRGENDETWAS
+            # liefert — auch dann, wenn es danebenliegt.  Genau solche Faelle
+            # ("House of Parliament" 7 km daneben) soll Wikidata abfangen; als
+            # Rueckfall kaeme es dort nie zum Zug.
+            #
+            # Von den 4 Verschlechterungen sind 3 Strassen: fuer ein Linienobjekt
+            # ist ein Punkt ohnehin willkuerlich, und welche Quelle naeher an der
+            # Aufnahme liegt, ist Zufall.  Die vierte war schon vorher 3 km daneben.
+            wd = None
+            if self.wikidata and near and record.location:
+                wd = self.wikidata.finde(record.location, record.city or "",
+                                         near=near, max_dist_km=nm_radius,
+                                         lang=_wikidata_lang(country_code))
+                if wd:
+                    self.wd_count += 1
+                    ext_result = {"lat": wd["lat"], "lon": wd["lon"],
+                                  "name": wd["name"], "precise": True,
+                                  "source": "wikidata"}
+                    dbg.append(f"Wikidata hit: {wd['name']} ({wd['qid']}) "
+                               f"{wd['dist_km']:.1f} km vom Anker")
+                elif self.wikidata._last_error:
+                    dbg.append(f"Wikidata error: {self.wikidata._last_error}")
+
+            nm = None
+            if wd:
+                pass            # Treffer steht — Nominatim eruebrigt sich
+            elif near and record.location:
                 # Bounded search: constrain to city radius so any result is guaranteed
                 # to be in the right area, even if the query string is imprecise.
                 # Query is just the location name — city context comes from the viewbox.
@@ -515,24 +600,29 @@ class GeoStack:
                     dbg.append(f"Nominatim hit: {nm['name']} (precise={nm['precise']})")
                 else:
                     dbg.append("Nominatim: rejected (proximity), retry failed")
-            else:
+            elif not wd:
                 dbg.append("Nominatim: no result")
+
         else:
             dbg.append(f"external skip: generic title {record.title!r}")
 
         if ext_result and ext_result.get("precise"):
+            # Die Meldung nennt die tatsaechliche Quelle: diese Schranken gelten
+            # fuer Wikidata genauso wie fuer Nominatim, und beim Nachverfolgen
+            # eines Fehlgriffs muss ablesbar sein, wer den Treffer geliefert hat.
+            quelle = ext_result.get("source", "extern")
             if country_code and not _within_country_bbox(ext_result["lat"], ext_result["lon"], country_code):
-                dbg.append(f"Nominatim precise {ext_result['name']!r} rejected (outside {country_code} bbox)")
+                dbg.append(f"{quelle} precise {ext_result['name']!r} rejected (outside {country_code} bbox)")
                 ext_result = None
             elif not country_code and not _within_collection_bbox(ext_result["lat"], ext_result["lon"], self.collection_bbox):
-                dbg.append(f"Nominatim precise {ext_result['name']!r} rejected (outside collection bbox)")
+                dbg.append(f"{quelle} precise {ext_result['name']!r} rejected (outside collection bbox)")
                 ext_result = None
             elif admin1_near and admin1_hint and country_code and self.geo_db:
                 dist_a1 = _dist_km(ext_result["lat"], ext_result["lon"], admin1_near[0], admin1_near[1])
                 a1_radius = self.geo_db.find_admin1_radius_km(country_code, admin1_hint, admin1_near)
                 if dist_a1 > a1_radius:
                     dbg.append(
-                        f"Nominatim precise {ext_result['name']!r} rejected "
+                        f"{quelle} precise {ext_result['name']!r} rejected "
                         f"(region dist {dist_a1:.0f} km > {a1_radius:.0f} km)"
                     )
                     ext_result = None

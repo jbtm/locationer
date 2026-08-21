@@ -1,0 +1,34 @@
+# Grosse Geodaten — rund 11 GB, gehören nie in die Versionierung.
+# locationer_geo_global.sqlite allein ist 4.8 GB, tgn_xml_0126.zip 3.2 GB;
+# GitHub weist Dateien über 100 MB ab, und einmal committet bekommt man sie
+# nur mit filter-repo wieder aus der Historie.
+LocationerGeo/
+
+# Zwischenspeicher (tgn.sqlite, heruntergeladene Zips)
+cache/
+
+# Archivkopien.  Was bereits getrackt ist, bleibt es — .gitignore wirkt nur
+# auf Neues.  Damit wächst der Bestand nicht weiter.
+Archiv/
+
+# Ergebnisse der Läufe: CSV und die dazugehörigen Karten.  Reproduzierbar aus
+# Eingabe und Code, deshalb nicht versioniert.  Wer einen bestimmten Lauf
+# festhalten will, nimmt ihn mit `git add -f` bewusst dazu.
+#
+# `**/` ist hier Pflicht: ein Muster mit Schrägstrich in der Mitte ist an das
+# Verzeichnis der .gitignore gebunden.  `out/*.csv` hätte nur `<Wurzel>/out/`
+# erfasst und `locationer-v4/out/` glatt durchgelassen.
+**/out/*.csv
+**/out/*.html
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Laufprotokolle
+*.log
+
+# macOS
+.DS_Store

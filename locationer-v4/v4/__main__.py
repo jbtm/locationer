@@ -20,6 +20,7 @@ from .geostack import GeoStack
 from .input_normalizer import InputNormalizer
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
+from .wikidata import Wikidata
 from .tgn_db import TgnDatabase
 
 _QUALIFIERS = re.compile(
@@ -479,10 +480,14 @@ def main():
                           debug=(args.mode == "debug"))
     normalizer = InputNormalizer(cache, debug=(args.mode == "debug"), tgn_db=tgn_db, geo_db=geo_db,
                                 extra_desc_cols=_EXTRA_DESC_COLS)
+    # Abschaltbar: faellt die Wikidata-Schnittstelle aus, laeuft der Rest weiter.
+    # Dient ausserdem dem sauberen Vergleich zweier Laeufe (WIKIDATA=0).
+    wikidata   = (Wikidata(_ext_conn, debug=(args.mode == "debug"))
+                  if os.getenv("WIKIDATA", "1") != "0" else None)
     geostack   = GeoStack(geo_db, cache, nominatim,
                           debug=(args.mode == "debug"), overrides=overrides,
                           tgn_db=tgn_db, collection_bbox=_COLLECTION_BBOX,
-                          country_dbs=country_dbs)
+                          country_dbs=country_dbs, wikidata=wikidata)
 
     chunk_size = args.chunk_size or total  # no chunking = one big chunk
 

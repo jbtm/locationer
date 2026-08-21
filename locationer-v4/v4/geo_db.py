@@ -57,11 +57,55 @@ def ascii_norm_de(s: str) -> str:
     return " ".join(s.split())
 
 
+# Abkuerzungen am WORTANFANG.  GeoNames fuehrt „Saint-Jean", die Quelle schreibt
+# „St-Jean" — ohne Erweiterung finden sich die beiden nie.
+#
+# Zwingend auf ganze Woerter angewandt, nicht auf Zeichenketten: eine
+# Prefix-Ersetzung machte aus „Santis" ein „S.tis" und aus „Sanremo" ein
+# „S.remo", weil beide zufaellig mit „san" beginnen.  Solche Kunstformen koennen
+# in einer Datenbank mit 13 Mio. Zeilen durchaus etwas treffen — nur nichts
+# Richtiges.
+_ABK_PAARE = (("st", "saint"), ("ste", "sainte"))
+
+
 def _ascii_norm_variants(s: str) -> list[str]:
-    """Return both normalization variants, deduplicated."""
-    v1 = ascii_norm(s)
-    v2 = ascii_norm_de(s)
-    return [v1, v2] if v1 != v2 else [v1]
+    """Schreibvarianten eines Namens fuer die Suche.
+
+    Liefert absichtlich MEHRERE Formen statt einer kanonischen: die
+    GeoNames-Datenbank ist selbst uneinheitlich normalisiert.  Derselbe Name
+    „Monte-Carlo" steht bei Monaco als `monte carlo`, bei Brasilien als
+    `monte-carlo`.  Eine einzelne Abfrageform verfehlt darum systematisch die
+    jeweils andere Schreibung — und traf im Fall Monte-Carlo ausgerechnet den
+    brasilianischen Eintrag.
+
+    Rein additiv: die bisherigen Formen bleiben an erster Stelle, es kommen nur
+    weitere hinzu.  Die Suche kann dadurch mehr Kandidaten finden, nie weniger;
+    welcher gewinnt, entscheidet unveraendert die Sortierung (gleiches Land
+    zuerst) und danach die Laenderschranke im Geostack.
+    """
+    formen: list[str] = []
+
+    def _dazu(x: str) -> None:
+        x = " ".join(x.split())
+        if x and x not in formen:
+            formen.append(x)
+
+    for basis in (ascii_norm(s), ascii_norm_de(s)):
+        _dazu(basis)
+        ohne_strich = basis.replace("-", " ")
+        _dazu(ohne_strich)
+        # Abkuerzung nur, wenn das erste WORT genau die Abkuerzung ist.
+        # Der Bindestrich zaehlt dabei als Worttrenner („St-Jean").
+        for form in (basis, ohne_strich):
+            teile = form.replace("-", " ").split()
+            if not teile:
+                continue
+            for kurz, lang in _ABK_PAARE:
+                if teile[0] == kurz:
+                    _dazu(" ".join([lang] + teile[1:]))
+                elif teile[0] == lang:
+                    _dazu(" ".join([kurz] + teile[1:]))
+    return formen
 
 
 def _dist_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
