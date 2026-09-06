@@ -97,6 +97,14 @@ class Nominatim:
             self.call_count -= 1
             return None
 
+        # Nominatim antwortet bei Fehlern und Drosselung mit einem OBJEKT
+        # ({"error": …}) statt einer Liste.  `not data` ist dann falsch, und das
+        # folgende data[0] sucht den Schluessel 0 in einem dict — KeyError.
+        # Am 2026-09-06 nach 47 Aufrufen im ZIN-Lauf passiert; der ganze Lauf
+        # brach nach 1.371 von 21.684 Zeilen ab.
+        if isinstance(data, dict):
+            self._last_error = f"Nominatim-Fehlerantwort: {str(data)[:120]}"
+            return None
         if not data:
             return None  # don't cache misses — allows retry on next run
 
@@ -158,6 +166,14 @@ class Nominatim:
             self.call_count -= 1
             return None
 
+        # Nominatim antwortet bei Fehlern und Drosselung mit einem OBJEKT
+        # ({"error": …}) statt einer Liste.  `not data` ist dann falsch, und das
+        # folgende data[0] sucht den Schluessel 0 in einem dict — KeyError.
+        # Am 2026-09-06 nach 47 Aufrufen im ZIN-Lauf passiert; der ganze Lauf
+        # brach nach 1.371 von 21.684 Zeilen ab.
+        if isinstance(data, dict):
+            self._last_error = f"Nominatim-Fehlerantwort: {str(data)[:120]}"
+            return None
         if not data:
             return None  # don't cache misses — allows retry on next run
 

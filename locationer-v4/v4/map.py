@@ -157,6 +157,15 @@ def main():
     args = ap.parse_args()
 
     df = pd.read_csv(args.input, on_bad_lines="skip")
+
+    # Die Ausgabe traegt seit 2026-08-23 die Spaltennamen der Pictomap-
+    # Importvorlage.  Hier werden die intern verwendeten Namen als Alias
+    # ergaenzt, damit die Karte beide Fassungen liest.
+    for intern, vorlage in (("Title", "Name"), ("City", "Stadt/Ort"),
+                            ("Country", "Land"), ("Lat", "Breitengrad"),
+                            ("Lon", "Längengrad")):
+        if intern not in df.columns and vorlage in df.columns:
+            df[intern] = df[vorlage]
     mapped = df[df["Lat"].notna() & df["Lon"].notna()].copy()
     skipped = len(df) - len(mapped)
 

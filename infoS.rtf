@@ -16,7 +16,7 @@
 {\list\listtemplateid2\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid101\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid2}
 {\list\listtemplateid3\listhybrid{\listlevel\levelnfc0\levelnfcn0\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{decimal\}}{\leveltext\leveltemplateid201\'01\'00;}{\levelnumbers\'01;}\fi-360\li720\lin720 }{\listname ;}\listid3}}
 {\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}{\listoverride\listid2\listoverridecount0\ls2}{\listoverride\listid3\listoverridecount0\ls3}}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11620\viewh9740\viewkind0
+\paperw11900\paperh16840\margl1440\margr1440\vieww14760\viewh12840\viewkind0
 \deftab720
 \pard\pardeftab720\partightenfactor0
 
@@ -274,7 +274,7 @@ WENN das Men\'fc nicht angezeigt wird, das VScode-Fenster schliessen und mit Fil
 \f2\fs28 \cf0  \
 \
 SKLILLS\
-\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural\partightenfactor0
 
 \f1\fs22 \cf4 \kerning1\expnd0\expndtw0 \CocoaLigature0   - \cf19 ~/.claude/commands/\cf4  \'97 global, alle Projekte\
 >open \
@@ -287,7 +287,7 @@ SKLILLS\
 \cf0 \
 \
 CACHE\
-\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural\partightenfactor0
 
 \f1\fs22 \cf4 \kerning1\expnd0\expndtw0 \CocoaLigature0 Es gibt drei Cache-Tabellen in \cf19 cache/locationer.sqlite\cf4 :\
                                                                 \
@@ -360,8 +360,9 @@ CACHE\
 
 \f2\fs28 \cf0 \expnd0\expndtw0\kerning0
 \CocoaLigature1 \
+\pard\pardeftab720\partightenfactor0
 
-\fs72 LayerCurator
+\fs72 \cf0 LayerCurator
 \fs28     \
 > cd /Users/dec/Documents/PROGRAMMIEREN/python/LayerCurator\
 \
@@ -373,9 +374,79 @@ CACHE\
 \
 3) Hochladen (run_id steht am Ende von Schritt 1):\
 python3 curator.py --upload-run <run_id>\
+\
+\pard\pardeftab720\partightenfactor0
+
+\fs72 \cf0 MAP-SERVER
+\fs28 \
 \pard\pardeftab720\partightenfactor0
 \cf0 \
-\pard\pardeftab720\partightenfactor0
-\cf0 \
+\
+ ok, das heisst https://map.cronica.ch/demo/ ist nicht als iframe umgesetzt?    k\'f6nnten wir nun noch die lab-page mit den reglern bauen in der man das style.json runterladen kann? dann kann ich das in https://map.cronica.ch/demo/ integrieren und sehen ob es funzt?\
+\
+Richtig \'97 kein iframe. /demo/ l\'e4dt MapLibre direkt in die Seite, genau so, wie es sp\'e4ter als Komponente in Pictomap l\'e4uft. Deshalb taugt der Quelltext als Vorlage: was Softi dort sieht, kann er eins zu eins \'fcbernehmen.\
+\
+Jetzt das Labor mit dem Download-Knopf. Der Kniff dabei: map.getStyle() liefert den Style mit allen Reglerst\'e4nden bereits angewendet \'97 es muss keine Formel nachgebaut werden.\
+\
+  Ran 1 shell command\
+\
+v21 ist gebaut und gepr\'fcft. Jetzt aufs /test mit Passwortschutz, weil dort alle 19'643 Punkte drin sind:\
+\
+  Ran 1 shell command\
+\
+Ohne Passwort kommt 404 statt 401 \'97 das stimmt nicht. Ich schaue nach:\
+\
+  Ran 1 shell command\
+\
+Falscher Alarm \'97 mit Schr\'e4gstrich kommt korrekt 401 Unauthorized. Mein erster Test lief offenbar eine Sekunde zu fr\'fch, vor dem Neuladen.\
+\
+Was aber wirklich st\'f6rt: /test ohne Schr\'e4gstrich ergibt 404. Das tippt jeder so. Ich h\'e4nge f\'fcr beide Seiten eine Umleitung an:\
+\
+  Ran 2 shell commands\
+\
+https://map.cronica.ch/test/\
+\
+Benutzer   map\
+Passwort   firn-kachel-kar-54\
+\
+Der Browser sollte gerade danach fragen. \'c4ndern kannst du es jederzeit mit htpasswd /etc/nginx/map.htpasswd map auf dem Server.\
+\
+Der neue Knopf heisst \'84Rezept herunterladen (style.json)" und sitzt unter \'84Als Vorgabe merken". Er nimmt map.getStyle() \'97 also den Style, wie MapLibre ihn in diesem Moment tats\'e4chlich verwendet, mit allen Reglerst\'e4nden schon eingerechnet. Genau deshalb kann er nicht von dem abweichen, was du siehst: es wird keine Formel nachgebaut, sondern der laufende Zustand abgeschrieben.\
+\
+Herausgenommen werden nur die Fotopunkte. Die sind Daten der Anwendung, nicht Bestandteil der Grundkarte \'97 und die Quelle fotos w\'fcrde sonst alle 19'643 Punkte im Klartext mitschleppen. Nach dem Herunterladen sagt dir der Hinweistext, wie viele Ebenen und wie viele \
+Herausgenommen werden nur die Fotopunkte. Die sind Daten der Anwendung, nicht Bestandteil der Grundkarte \'97 und die Quelle fotos w\'fcrde sonst alle 19'643 Punkte im Klartext mitschleppen. Nach dem Herunterladen sagt dir der Hinweistext, wie viele Ebenen und wie viele Kilobyte es geworden sind.\
+\
+Deine Schleife sieht damit so aus:\
+\
+1.  /test/     Regler drehen, bis es stimmt\
+2.             \'84Rezept herunterladen"  \uc0\u8594   pictomap.json\
+3.             scp pictomap.json map:/var/www/map/styles/\
+4.  /demo/     neu laden \'97 die Karte sieht jetzt so aus\
+\
+Schritt 3 ist ein echter Ausrollschritt und bleibt Handarbeit \'97 das ist Absicht. Sonst k\'f6nnte ein Regler, den jemand versehentlich verschiebt, direkt die Karte in Pictomap ver\'e4ndern.\
+\
+Alle Adressen zusammen:\
+\
+/                        Lebenszeichen\
+/demo/                   Referenzseite f\'fcr Softi        offen\
+/test/                   dein Labor mit 32 Reglern      Passwort\
+/planet                  Auskunftsdatei                 offen\
+/planet/\{z\}/\{x\}/\{y\}.pbf  Kacheln                        offen\
+/fonts/\'85                 Schriftzeichen                 offen\
+/styles/pictomap.json    das Rezept                     offen\
+\
+/demo und /test ohne Schr\'e4gstrich leiten jetzt um \'97 nginx tut das bei alias nicht von selbst, und getippt wird es ohne.\
+\
+Wenn du magst, kopiere ich dir das erste heruntergeladene Rezept gleich r\'fcber, damit du die Schleife einmal geschlossen siehst.\
+\
+\uc0\u10043  Churned for 2m 27s\
+\
+\uc0\u9210  Stopped watching Artifact: "Pictomap auf eigenen Kacheln" (connection lost)\
+\
+Kurze Systemmeldung, kein Handlungsbedarf: die Live-Verbindung zum \'dcbergabepapier ist abgebrochen. Praktische Folge nur, falls jemand anderes es von ausserhalb dieser Sitzung neu ver\'f6ffentlicht \'97 davon bek\'e4me ich hier nichts mehr mit. Der Link selbst funktioniert unver\'e4ndert, und ich kann das Papier jederzeit aktualisieren.\
+\
+Es steht noch mein Angebot von vorhin offen: das erste heruntergeladene Rezept nach /var/www/map/styles/ kopieren, damit du die Schleife von /test/ nach /demo/ einmal geschlossen siehst. Sag Bescheid, wenn ich das machen soll.\
+\
+\
 \
 }

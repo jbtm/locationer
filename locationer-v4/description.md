@@ -165,16 +165,66 @@ Optionale Spalten `lat_true` / `lon_true` (oder `Breitengrad` / `Längengrad`): 
 
 ### Ausgabeformat
 
-Das Output-CSV enthält zuerst **alle Originalspalten des Inputs** (unverändert), dann die geocodierten Felder:
+**Seit 2026-08-23 schreibt der Locationer in der Struktur des Pictomap-Importfiles**, damit die Ausgabe ohne Nacharbeit importiert werden kann. Vorlage ist `Massenupload/Zinggeler-Wehrli/ZIN-TI-SG-LU-ZH_UPLOAD_2026-07-19.csv`.
 
 ```
-<alle Input-Spalten> …
-Title, Description, Periode, Urheber, Technik,
-Country, Region, City, Lat, Lon,
-Coord-Quality-Score, Fallback, Ambiguous, Ext-Calls[, Deviation_km]
+ 1–14  Name, Beschreibung, Exakte Koordinaten, Datei, Periode, Quelle,
+       Referenz, Urheber:in, Land, Region, Stadt/Ort, Breitengrad,
+       Längengrad, Bemerkungen          ← Vorlage, deren Reihenfolge und Schreibweise
+   15  Gitter
+  16+  übrige Locationer-Spalten: Technik, Coord-Quality-Score, Fallback,
+       Ambiguous, Ext-Calls[, Deviation_km], Map
+       danach die durchgereichten Eingabespalten
 ```
 
-Wenn eine Input-Spalte denselben Namen wie eine Geocoding-Spalte trägt (z.B. `Title`), bleibt der Originalwert erhalten und der normalisierte Wert erscheint zusätzlich am Ende.
+### Woher die Werte kommen
+
+| Vorlagenspalte | Quelle |
+|---|---|
+| `Name` | `Title` — der von Haiku bereinigte Titel |
+| `Beschreibung` | `Description` |
+| `Periode` | `Periode` (PCTM-normalisiert) |
+| `Urheber:in` | `Urheber` |
+| **`Land`, `Region`, `Stadt/Ort`, `Breitengrad`, `Längengrad`** | **das Geocoding-Ergebnis** |
+| `Exakte Koordinaten`, `Datei`, `Quelle`, `Referenz`, `Bemerkungen` | die Eingabe, unverändert |
+
+Die Ortsangaben kommen bewusst aus dem Geocoding und nicht aus der Eingabe — sonst wäre die Datei beim Reimport wirkungslos. Die Originalwerte gehen nicht verloren: sie werden hinten durchgereicht.
+
+**Namenskonflikte bekommen ein Suffix.** Eine durchgereichte Eingabespalte, deren Name schon vergeben ist, heisst `<Name>_original` (bei weiterer Kollision `_original2`). Bei den ZIN-Eingaben betrifft das `Beschreibung`, `Breitengrad`, `Längengrad` und `Urheber:in`. Ohne das Suffix stünden zwei gleichnamige Spalten in der Datei, und der Import könnte die falsche greifen — also die alte statt der geokodierten Koordinate.
+
+Umgesetzt in `_als_importstruktur()`; die Zuordnung steht in `_UMBENENNEN`, die Vorlagenreihenfolge in `PICTOMAP_SPALTEN`. **Es wird ausschliesslich umbenannt und umsortiert**, keine Werte werden neu berechnet.
+
+> **Die QA-Karte liest intern weiter `Lat`, `Lon`, `Title`, `City`, `Country`.**
+> `v4/map.py` legt diese Namen beim Einlesen als Alias auf die Vorlagenspalten,
+> damit sowohl neue als auch alte Ausgabedateien funktionieren.
+
+### Zwei offene Punkte vor dem ersten Massenimport — erledigt am 2026-09-06
+
+1. ~~**`Land` ist englisch**~~ → wird jetzt übersetzt, siehe *Ländernamen auf Deutsch*.
+2. ~~**`Exakte Koordinaten` wird durchgereicht**~~ → wird jetzt berechnet, siehe
+   *Exakte Koordinaten — Punkt oder Fläche*.
+
+**Zu Punkt 2 gehört ein umgekehrter Entscheid.** `write_locationer_results.py`
+hält fest, `localization_is_exact` solle bei Locationer-Ergebnissen **nie** wahr
+sein — Begründung dort: „Der Locationer liefert den Fotografenstandort, nicht
+das abgebildete Objekt."
+
+Dec hat das am 2026-09-06 umgedreht, und die Begründung trägt: bei einem
+Objekttreffer liefert der Locationer gerade **nicht** den Fotografenstandort,
+sondern die Koordinate des abgebildeten Objekts. Für die Abstandsanzeige in
+Pictomap („300 m entfernt") ist das die nützlichere Angabe — man sucht Bilder
+von dem, was in der Nähe steht.
+
+> **Folge, die man kennen muss:** `is_exact = 1` löst in Pictomap auf **Prio 2**
+> auf (`localization_exact`), und Prio 4 (`localization_virtual`, das Gestreute)
+> wird nie erreicht. Präzise heisst damit zwingend: **auf dem Punkt,
+> unverschoben, gestapelt.** Mehrere Aufnahmen desselben Bauwerks liegen
+> übereinander; im Public Layer wählt der Curator eine aus.
+>
+> Die saubere Lösung läge darin, die Abstandsanzeige an `gitter` (eine Zahl in
+> Metern) zu hängen statt an ein Ja/Nein — „±100 m, 300 m entfernt" wäre auch
+> für Ortsmittelpunkte ehrlich. Das ist ein Eingriff in den Directus-Flow und
+> ins Frontend, nicht in den Locationer.
 
 `Ambiguous` — `True` wenn der City-Anker mehrdeutig war (mehrere geografisch weit auseinanderliegende Kandidaten). Die Koordinaten sind trotzdem vorhanden (bester Kandidat), aber die Zuordnung ist unsicher. Im human-Output erscheint `[?ambig]`.
 
@@ -292,6 +342,63 @@ Lokaler SQLite-Lookup auf `rec.location`. Der `country_code` (aus `rec.country` 
 
 ---
 
+## ZIN-Lauf vom 2026-09-06
+
+`out/zin_2026-09-06.csv` — **der erste Lauf mit Importformat, Gitter und
+berechneter Exaktheit.** 21.684 Zeilen, 95,7 % mit Koordinate.
+
+```
+Score 5  GEO DB / TGN präzis      4.637   22,8 %
+Score 4  Nominatim präzis         3.669   18,1 %
+Score 3  Stadtzentrum GEO DB     10.805   53,2 %
+Score 2  Stadtzentrum Nominatim     329    1,6 %
+Score 0  nicht gefunden             884    4,3 %
+```
+
+```
+Exakte Koordinaten   4.356 von 21.684   (20 %)
+Gitter    0 →  4.356    Punkttreffer, nicht verschieben
+        100 →  4.487    Flächentreffer (See, Tal, Gebirge)
+        400 →  4.830    Ortsmittelpunkt, Dorf
+        600 →  3.576
+      1.000 →  1.922
+      1.600 →    791
+      3.000 →    521
+      5.000 →     79
+       leer →  1.122    ohne Koordinate
+```
+
+**`Gitter = 0` steht exakt 4.356-mal — dieselbe Zahl wie
+`Exakte Koordinaten = true`.** Die beiden Felder widersprechen sich nirgends.
+
+Stichprobe von Hand:
+
+```
+PRÄZISE  0    Pontresina Bahnhof · Schloss Vaduz · Passo dello Stelvio · Matterhorn
+unpräzis 100  Zürichsee · Viamala
+unpräzis 400  Puria, Ortschaft
+unpräzis 600  Bormio · Grindelwald Bahnhofplatz
+```
+
+### Zwei Fehler, die dieser Lauf aufgedeckt hat
+
+**`_gitter_m()` hätte 20 Stunden gebraucht.** Die Abfrage suchte über `name`
+statt über die indizierte Normalform — 60 Sekunden je Ortsname, bei 1.172
+verschiedenen Orten. Die Funktion war geschrieben, aber nie gelaufen, deshalb
+hat es niemand gemerkt. Nach der Umstellung auf `name_norm`: 0,0016 s.
+
+**`nominatim.py` stürzte nach 1.371 Zeilen ab.** Nominatim antwortet bei Fehlern
+und Drosselung mit einem *Objekt* (`{"error": …}`) statt einer Liste; `not data`
+ist dann falsch und das folgende `data[0]` sucht den Schlüssel `0` in einem
+dict — `KeyError: 0`. Ein latenter Fehler, der auf diesen Moment gewartet hat.
+Beide Fundstellen sind jetzt abgesichert, der Fehler landet in `_last_error`
+statt den Lauf zu beenden.
+
+> **Auto-Resume hat getragen:** derselbe Befehl setzte bei Zeile 1.361 an.
+> Gesamtdauer rund zwei Stunden, netzgebunden durch Nominatim.
+
+---
+
 ## 5. GeoStack — Entscheidungsbaum
 
 Pro Datensatz durchläuft die Pipeline folgende Schritte. Der erste Treffer gewinnt.
@@ -336,6 +443,24 @@ Step 2.7 Country DB precise (länderspezifische GeoNames-DB)
            Graceful skip wenn keine DB für das Land vorhanden
            → Score 5 (kein Fallback)
            ↓ miss
+Step 3a  Wikidata (seit 2026-08-16) — VOR Nominatim
+           Nur wenn Ortsanker UND location vorhanden
+           Suche über `wbsearchentities` — kennt Aliasnamen, die weder GeoNames
+           noch Nominatim führen: „Stadttheater Zürich" → Opernhaus,
+           „House of Parliament" → Palace of Westminster
+           Trifft nur bei exakter Namensgleichheit (Bezeichnung oder Aliasname)
+           Dieselben Schranken wie Nominatim: Länder-Rahmen, Regionsabstand
+           Bei Treffer entfällt Nominatim
+           Abschaltbar mit WIKIDATA=0
+           → Score 4 (kein Fallback)
+           ↓ miss
+
+           WARUM VOR NOMINATIM: gemessen an 1.009 Bildern mit menschlich
+           gesetzter Koordinate — 12 besser / 4 schlechter bei 561 eigenständigen
+           Entscheidungen. Als blosser Rückfall wirkungslos (Median 0,26 statt
+           0,27 km), weil Nominatim fast immer IRGENDETWAS liefert, auch wenn es
+           7 km danebenliegt. Genau solche Fälle soll Wikidata abfangen.
+           ↓
 Step 3   Nominatim (OpenStreetMap) — bounded wenn City-Anker vorhanden
            Nur wenn city ODER location bekannt (kein Aufruf ohne Anker)
            Generische Titel ohne location_type → überspringen (→ Step 4)
@@ -352,6 +477,7 @@ Step 3   Nominatim (OpenStreetMap) — bounded wenn City-Anker vorhanden
              (Score 5 wenn Treffer, Score 0 wenn nicht)
 
            Präzis-Treffer → Score 4 | Nicht-präzis → weiter zu Step 4
+           (Wikidata und Nominatim teilen sich diesen Pfad, geostack.py:631)
            ↓ miss oder nicht präzis
 Step 4   GEO DB city (Stadtzentrum)
            find_city(city, country_code, admin1_hint)
@@ -448,6 +574,145 @@ Haiku inferiert Region auch aus geographischem Kontext, wenn sie nicht explizit 
 | 0 | — | — | Nicht gefunden |
 
 `Ambiguous=True` kann bei jedem Score auftreten — es beschreibt die Qualität des City-Ankers, nicht des Treffers selbst.
+
+### Exakte Koordinaten — Punkt oder Fläche
+
+`Exakte Koordinaten` sagt, ob ein **punktförmiges Objekt** gefunden wurde. Nur
+dann ist die Koordinate eine Verortung; sonst ist sie der Schwerpunkt einer
+Fläche, und dafür gibt es `gitter`.
+
+```
+Exakte Koordinaten = kein Fallback  UND  Score ≥ 4  UND  Typ ist punktförmig
+```
+
+| | |
+|---|---|
+| **Punkt** | Bauwerke — Schloss, Bahnhof, Kirche, Hotel, Brücke · Gipfel und Pässe |
+| **Fläche** | **alle** Siedlungen · Gewässer · Täler, Schluchten, Gebirgszüge · Inseln · Parks, Regionen, Verwaltungseinheiten |
+
+Siedlungen sind ausnahmslos Fläche (Decs Entscheid 2026-09-06). Das kommt ohne
+Grössenschwelle aus: der Unterschied zwischen Fuldera und Zürich steckt im
+`gitter`-Radius, nicht in einer willkürlichen Grenze zwischen Weiler und Dorf.
+
+**Der Typ kommt aus der Quelle selbst, nicht aus dem Namen.** Eine Wortliste
+(„see", „tal", „berg") hinge an der Sprache und scheiterte schon an deutschen
+Zusammensetzungen — „Zürichsee" ist ein Token, nicht „Zürich" + „see". Die
+Vokabulare der Quellen sind dagegen endlich und sprachunabhängig: „Lago di
+Como" und „Zürichsee" sind beide `H.LK`.
+
+```
+GeoNames     feature_class + feature_code   Klasse S, dazu PK MT HLL VLC PASS
+Nominatim    place_type                     aus nominatim_cache, zu 100 % gefüllt
+TGN          place_type                     aus tgn_place
+Wikidata     —                              nur label gespeichert
+```
+
+Umgesetzt in `v4/objekttyp.py`. **Kein neues Feld auf `GeoResult`, keine
+Neu-Geokodierung**: der Typ wird beim Schreiben der Zeile nachgeschlagen, aus
+denselben persistenten Speichern, aus denen die Koordinate kam. Schlüssel ist,
+was `GeoResult` ohnehin trägt — `source`, `match_name`, `lat`, `lon`.
+
+> **Falle bei den Abfragen.** Es gibt drei Schreibvarianten, und keine einzelne
+> trifft alle Spalten:
+>
+> ```
+> name              Zürichsee
+> name_norm         zürichsee     klein, Umlaute BLEIBEN
+> ascii_name_norm   zuerichsee    ascii_norm_de, ü→ue
+> ascii_norm()      zurichsee     trifft KEINE der beiden
+> ```
+>
+> Und: nur `name_norm` und `ascii_name_norm` sind indiziert. Eine Abfrage auf
+> `name` läuft als voller Durchlauf über 13,4 Mio. Zeilen — **11,6 s statt
+> 0,001 s**, gemessen am 2026-09-06. Dasselbe bei TGN: dort gibt es keinen
+> Koordinatenindex, wohl aber `idx_tgn_place_norm`.
+
+**Letzter Rückfall: der nächstgelegene GeoNames-Eintrag im Umkreis von 60 m.**
+Für Quellen ohne eigenen Typ — Wikidata und die Länder-DBs. Der Gedanke ist
+Decs: Wikidata findet den Ort über einen *Aliasnamen*, unter dem GeoNames ihn
+nicht kennt. Der Name geht also fehl, die **Koordinate** nicht — beide zeigen
+auf dasselbe reale Objekt.
+
+```
+Bahnhof Pontresina  →  Pontresina station           S.RSTN   12 m
+Bahnhof St. Moritz  →  St. Moritz Railway Station   S.RSTN   58 m
+```
+
+Zwei Regeln machen das belastbar. **Der nächstgelegene zählt, nicht der
+erstbeste** — ein erster Entwurf ging die Klassen in fester Reihenfolge durch
+und bevorzugte damit systematisch „Punkt". Und **der Radius ist eng**; gemessen
+über 852 Wikidata-Treffer, wie oft das Urteil kippte, hätte man den
+zweitnächsten genommen:
+
+```
+ 15 m    11 % Abdeckung     5 % wackelig
+ 60 m    39 %               8 %      ← gewählt
+100 m    55 %              15 %
+150 m    68 %              21 %
+```
+
+Über 60 m trifft die Abfrage, was zufällig danebensteht: „Maggiadelta" fand ein
+Bauernhaus in 119 m, „rifugio Tabaretta" einen Gipfel in 101 m. Bei 60 m fallen
+beide heraus, die Bahnhöfe bleiben.
+
+**Ergebnis, gemessen an 4.215 präzisen Treffern im Cache** (1,6 s):
+
+```
+                PUNKT   Fläche
+nominatim        1.028      518
+geo_db             690      258
+wikidata           257      595      ← vorher 0, nur über den Rückfall
+country_db         115      438
+tgn                 70      246
+                 -----
+als präzise      2.160   von 4.215   (51 %)
+```
+
+„Fläche" fasst zweierlei zusammen: einen erkannten Flächentyp und *nichts
+gefunden*. Beides führt zu `false` — **ein unbekannter Typ darf keine
+Genauigkeit behaupten, die niemand geprüft hat.**
+
+Ein konservativer Fehlschlag zum Kennen: „Rathaus Konstanz" gilt als Fläche,
+weil in 28 m die Altstadt (`P.PPLX`) liegt und näher ist als das Rathaus selbst.
+
+**Offen:** Wikidata hätte mit `P31` die beste Typinformation von allen. Sie zu
+holen und in `wikidata_cache` abzulegen würde diesen Rückfall überflüssig machen
+und die 595 Wikidata-Flächen prüfbar.
+
+### Ländernamen auf Deutsch
+
+`Land` wird über `LAND_DE` übersetzt (`__main__.py`). Grund: in Pictomap wurde
+`country` am 2026-08-22 auf deutsche Namen vereinheitlicht — ein Reimport mit
+englischen Werten machte das rückgängig. Unbekanntes bleibt unverändert stehen,
+statt zu verschwinden: eine Lücke fällt beim Sichten auf, ein stilles Weglassen
+nicht.
+
+> **Nicht gelöst: die Ortsnamen.** `City` hat 1.172 verschiedene Werte —
+> „Firenze" oder „Florenz", „Praha" oder „Prag" ist offen (Dec, 2026-09-06:
+> „kein Sprachkonzept für fremde Objekte"). Die Ländertabelle löst 17 Werte,
+> nicht das Problem dahinter.
+
+### Gitter — der Unschärferadius
+
+`Gitter` sagt in Metern, wie sicher die gefundene Koordinate ist. Der Wert wandert über den Import in das Feld `gitter` auf `images` und ersetzt dort die Schätzung, die der LayerCurator früher bei jedem Lauf neu aus der Einwohnerzahl zog. **Wer die Koordinate gefunden hat, weiss am besten, wie sicher sie ist** — deshalb gehört die Angabe hierher und nicht in den Curator.
+
+| Fall | `Gitter` |
+|---|---|
+| Objekttreffer (Score ≥ 4, kein Fallback) | `100` — ein benanntes Bauwerk, ein Platz, eine Brücke |
+| Ortsmittelpunkt (Fallback) | CityRadius aus der Einwohnerzahl: >500k → 5000 m, >100k → 3000, >20k → 1600, >5k → 1000, >1k → 600, sonst 400 |
+| nichts gefunden (Score 0) oder keine Koordinate | *(leer)* — der Curator nimmt dann CityRadius/2 |
+
+Die 100 m sind eine **Festlegung, keine Messung**. Ein Versuch, sie aus 1016 menschlich gesetzten Koordinaten abzuleiten, scheiterte am 2026-08-21 daran, dass 70 % dieser Referenzen selbst geteilte Sammelpunkte sind: der Prüfsatz misst dort, wie gut ein Verfahren einen Sammelpunkt reproduziert, und belohnt ausgerechnet den Ortsmittelpunkt.
+
+Für die Einwohnerzahl zählt der **Ort, auf den zurückgefallen wurde** — nicht der, der der Koordinate zufällig am nächsten liegt. Er steht in `geo.match_name` und wird über den Namen nachgeschlagen; da die Koordinate sein Mittelpunkt IST, ist er über die Nähe eindeutig bestimmt, Homonyme können nicht greifen. Stadtquartiere (`PPLL`/`PPLX`) bleiben aussen vor.
+
+> **Korrektur 2026-09-06.** Hier stand, es werde der nächstgelegene Ort genommen. Das war ein Fehlgedanke und ist seit dem 2026-08-25 auch im Code nicht mehr so. Gemessen: in derselben 0,1-Grad-Zelle (~11 km) liegen Zürich mit 415'367 Einwohnern und Weiler mit 18; in 60 von 350 Zellen unterschieden sich die Orte um Faktor 5. Zwei Bilder wenige Kilometer auseinander bekamen so 400 und 3'000 Meter.
+
+Umgesetzt in `_gitter_m()` und `_city_radius_m()`.
+
+> **Der Wert ist eine Obergrenze, keine Distanz.** Der Curator startet am wahren
+> Punkt und rückt nur aus, wenn es eng ist. Bei rund der Hälfte aller Punkte liegt
+> ohnehin nur ein Bild — dort bleibt es exakt liegen.
 
 ---
 

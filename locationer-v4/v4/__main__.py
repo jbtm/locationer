@@ -17,6 +17,8 @@ from .country_db import load_country_dbs
 from .explicit_store import ExplicitStore
 from .geo_db import GeoDatabase
 from .geostack import GeoStack
+from .objekttyp import ist_punkt, _klein_norm as _klein_norm_lokal
+from .geo_db import ascii_norm, ascii_norm_de
 from .input_normalizer import InputNormalizer
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
@@ -256,6 +258,233 @@ def _raw_text(row: dict) -> str:
     return " ".join(str(v) for v in row.values() if v is not None and str(v).strip())
 
 
+# ── Laendernamen auf Deutsch ─────────────────────────────────────────────────
+#
+# Der Geostack arbeitet intern mit englischen Namen (GeoNames `country_name`).
+# In Pictomap wurde `country` am 2026-08-22 auf deutsche Namen vereinheitlicht —
+# ein Reimport mit englischen Werten machte das rueckgaengig.
+#
+# Unbekanntes bleibt unveraendert stehen, statt zu verschwinden: eine Luecke
+# faellt beim Sichten auf, ein stilles Weglassen nicht.
+#
+# ACHTUNG, nicht geloest: fuer ORTSNAMEN gibt es keine solche Liste.  `City`
+# hat 1.172 verschiedene Werte — „Firenze" oder „Florenz", „Praha" oder „Prag"
+# ist eine offene Frage (Dec, 2026-09-06: „kein Sprachkonzept fuer fremde
+# Objekte").  Diese Tabelle loest die Laender, nicht das Problem dahinter.
+LAND_DE = {
+    "Switzerland": "Schweiz",          "Italy": "Italien",
+    "France": "Frankreich",            "Germany": "Deutschland",
+    "Liechtenstein": "Liechtenstein",  "Austria": "Österreich",
+    "Denmark": "Dänemark",            "Egypt": "Ägypten",
+    "South Africa": "Südafrika",      "Greece": "Griechenland",
+    "Sweden": "Schweden",              "Algeria": "Algerien",
+    "Norway": "Norwegen",              "Czechia": "Tschechien",
+    "Tunisia": "Tunesien",             "Monaco": "Monaco",
+    "Canada": "Kanada",                "Netherlands": "Niederlande",
+    "Belgium": "Belgien",              "Spain": "Spanien",
+    "Portugal": "Portugal",            "Poland": "Polen",
+    "Hungary": "Ungarn",               "Croatia": "Kroatien",
+    "Slovenia": "Slowenien",           "Slovakia": "Slowakei",
+    "United Kingdom": "Vereinigtes Königreich",
+    "United States": "Vereinigte Staaten",
+    "Turkey": "Türkei",               "Morocco": "Marokko",
+    "Japan": "Japan",                  "China": "China",
+    "Russia": "Russland",              "Finland": "Finnland",
+    "Ireland": "Irland",               "Luxembourg": "Luxemburg",
+    "Serbia": "Serbien",               "Romania": "Rumänien",
+    "Bulgaria": "Bulgarien",           "Ukraine": "Ukraine",
+}
+
+
+def _land_de(name):
+    """Englischer Laendername auf Deutsch. Unbekanntes bleibt, wie es ist."""
+    if not name:
+        return name
+    return LAND_DE.get(name.strip(), name)
+
+
+# ── Gitter: Unschaerferadius in Metern ────────────────────────────────────────
+#
+# Der Wert sagt, wie weit ein Bild von seiner Koordinate weg gestreut werden
+# darf.  Er wandert ueber den Import in das Feld `gitter` auf `images` und
+# ersetzt dort die Schaetzung, die der LayerCurator bisher bei jedem Lauf neu
+# aus der Einwohnerzahl gezogen hat.  Wer die Koordinate gefunden hat, weiss am
+# besten, wie sicher sie ist — deshalb gehoert die Angabe hierher.
+#
+#     Objekttreffer      100 m   ein benanntes Bauwerk, ein Platz, eine Bruecke
+#     Ortsmittelpunkt    CityRadius aus der Einwohnerzahl
+#     nichts gefunden    leer    — der Curator nimmt dann CityRadius/2
+#
+# Die 100 m sind eine Festlegung, keine Messung.  Ein Versuch, sie aus 1016
+# menschlich gesetzten Koordinaten abzuleiten, scheiterte am 2026-08-21 daran,
+# dass 70 % dieser Referenzen selbst geteilte Sammelpunkte sind (506 Bilder auf
+# 200 Koordinaten): der Pruefsatz misst dort, wie gut ein Verfahren einen
+# Sammelpunkt reproduziert, und belohnt ausgerechnet den Ortsmittelpunkt.
+GITTER_TREFFER_M = 100
+
+_gitter_cache: dict = {}
+
+
+def _city_radius_m(population: int) -> int:
+    """Unschaerfe eines Ortsmittelpunkts, abgeleitet aus der Einwohnerzahl.
+
+    Dieselbe Staffelung wie im LayerCurator (`city_radius_km` × 0.20).  Sie
+    loest auf Dorfebene auf, nicht auf Gemeindeebene: Fuldera mit 136
+    Einwohnern ergibt 400 m, nicht die Ausdehnung von Val Muestair.
+    """
+    km = (25.0 if population > 500_000 else
+          15.0 if population > 100_000 else
+          8.0 if population > 20_000 else
+          5.0 if population > 5_000 else
+          3.0 if population > 1_000 else 2.0)
+    return int(km * 0.20 * 1000)
+
+
+def _gitter_m(geo: GeoResult, geo_db: "GeoDatabase | None",
+              punkt: bool = False) -> "int | None":
+    """Der Radius fuer diese Fundstelle — None, wenn es nichts zu streuen gibt.
+
+    `punkt` ist der bereits gefaellte Entscheid aus `ist_punkt()`.  Er wird
+    hereingereicht statt hier nochmal gerechnet: derselbe Entscheid darf nicht
+    zweimal unabhaengig fallen, sonst koennen `gitter` und
+    `Exakte Koordinaten` auseinanderlaufen.
+    """
+    if geo.lat is None:
+        return None
+    if not geo.fallback and geo.quality_score >= 4:
+        # Ein punktfoermiges Objekt gilt als praezise verortet — und `gitter = 0`
+        # heisst im Curator genau das: „Position bekannt, nicht verschieben".
+        # Stuende hier 100, widerspraechen sich in Directus zwei Felder:
+        # `localization_is_exact` sagte „nicht bewegen", `gitter` sagte „100 m
+        # sind erlaubt".  Der Curator loeste es intern auf, ein Mensch nicht.
+        if punkt:
+            return 0
+        # Kein Punkt, aber ein Treffer: der Schwerpunkt einer Flaeche.  100 m
+        # trennen die Bilder optisch, ohne sie weit vom Objekt zu ruecken.
+        return GITTER_TREFFER_M
+    if not geo.fallback:
+        return None                       # Score 0: keine belastbare Fundstelle
+    if geo_db is None:
+        return None
+
+    # Einwohnerzahl DER STADT, auf die zurueckgefallen wurde — nicht des Orts,
+    # der der Koordinate zufaellig am naechsten liegt.
+    #
+    # Frueher wurde hier der naechstgelegene Ort gesucht und das Ergebnis pro
+    # 0,1-Grad-Zelle (~11 km) gemerkt.  In derselben Zelle liegen Zuerich
+    # (415.367 Einwohner) und Weiler mit 18; gemessen am 2026-08-25 lagen in 60
+    # von 350 Zellen Orte mit Faktor-5-Unterschied.  Zwei Bilder wenige
+    # Kilometer auseinander bekamen so 400 und 3.000 Meter.
+    #
+    # Dabei ist die Stadt in diesem Moment bekannt: `geo.match_name` traegt bei
+    # jedem Rueckfall ihren Namen (geostack.py, Zeilen 653/666/680).  Sie wird
+    # ueber den Namen nachgeschlagen und, da die Koordinate ihr Mittelpunkt IST,
+    # ueber die Naehe eindeutig bestimmt — Homonyme koennen nicht greifen.
+    if not geo.match_name:
+        return None
+    key = geo.match_name.lower()
+    if key not in _gitter_cache:
+        # UEBER DIE INDIZIERTEN NORMALFORMEN.
+        # Eine Abfrage auf `name` greift zwar den Klassenindex fuer
+        # feature_class='P', muss danach aber 1,6 Mio. Zeilen nach dem Namen
+        # durchsehen: 60 s JE ORTSNAME, gemessen 2026-09-06.  Bei 1.172
+        # verschiedenen Orten im ZIN-Bestand waeren das rund 20 Stunden.
+        #
+        # Drei Schreibvarianten, weil die beiden indizierten Spalten
+        # verschieden normalisiert sind und keine einzelne beide trifft:
+        #     name_norm        zürichsee    Umlaute bleiben
+        #     ascii_name_norm  zuerichsee   ascii_norm_de
+        rows = []
+        for spalte, wert in (("name_norm",       _klein_norm_lokal(geo.match_name)),
+                             ("ascii_name_norm", ascii_norm_de(geo.match_name)),
+                             ("ascii_name_norm", ascii_norm(geo.match_name))):
+            rows = geo_db.conn.execute(
+                f"SELECT population, lat, lon FROM geofeature "
+                f"WHERE {spalte} = ? AND feature_class='P' AND population > 0 "
+                f"AND feature_code NOT IN ('PPLL','PPLX')",
+                (wert,),
+            ).fetchall()
+            if rows:
+                break
+        beste = (min(rows, key=lambda r: _haversine_km(geo.lat, geo.lon, r[1], r[2]) or 0)
+                 if rows else None)
+        _gitter_cache[key] = _city_radius_m(beste[0] if beste else 0)
+    return _gitter_cache[key]
+
+
+# ── Ausgabestruktur: Pictomap-Importfile ─────────────────────────────────────
+#
+# Die Ausgabe soll ohne Nacharbeit in Pictomap importierbar sein.  Deshalb
+# stehen zuerst die Spalten der Importvorlage — in DEREN Reihenfolge und mit
+# DEREN Schreibweise — dann `Gitter`, dann die uebrigen Locationer-Spalten.
+#
+# Vorlage: Massenupload/Zinggeler-Wehrli/ZIN-TI-SG-LU-ZH_UPLOAD_2026-07-19.csv
+PICTOMAP_SPALTEN = [
+    "Name", "Beschreibung", "Exakte Koordinaten", "Datei", "Periode", "Quelle",
+    "Referenz", "Urheber:in", "Land", "Region", "Stadt/Ort", "Breitengrad",
+    "Längengrad", "Bemerkungen",
+]
+
+# Zielspalte ← Quellspalte im bisherigen Output.  Alle Werte liegen dort bereits
+# vor; hier wird nur umbenannt und umsortiert, nichts neu berechnet.
+#
+# Kommt ein Name doppelt vor (`Periode` und `Region` stehen sowohl in der
+# Eingabe als auch im Locationer-Ergebnis), gilt das SPAETERE — also das
+# Locationer-Ergebnis.  Sonst waere die Datei beim Reimport wirkungslos.
+_UMBENENNEN = {
+    "Name":               "Title",
+    "Beschreibung":       "Description",
+    "Exakte Koordinaten": "Exakte Koordinaten",
+    "Datei":              "Datei",
+    "Periode":            "Periode",
+    "Quelle":             "Quelle",
+    "Referenz":           "Referenz",
+    "Urheber:in":         "Urheber",
+    "Land":               "Country",
+    "Region":             "Region",
+    "Stadt/Ort":          "City",
+    "Breitengrad":        "Lat",
+    "Längengrad":         "Lon",
+    "Bemerkungen":        "Bemerkungen",
+}
+
+
+def _als_importstruktur(out_df):
+    """Spalten in die Reihenfolge und Schreibweise der Importvorlage bringen.
+
+    14 Vorlagenspalten · `Gitter` · alles Uebrige in bisheriger Reihenfolge.
+    Es wird ausschliesslich umbenannt und umsortiert.
+    """
+    def hole(name):
+        # Bei doppelten Namen die letzte Spalte nehmen (Locationer schlaegt Eingabe).
+        treffer = [i for i, c in enumerate(out_df.columns) if c == name]
+        if not treffer:
+            return pd.Series([None] * len(out_df))
+        return out_df.iloc[:, treffer[-1]].reset_index(drop=True)
+
+    genutzt = set(_UMBENENNEN.values()) | {"Gitter"}
+    teile = [hole(quelle).rename(ziel) for ziel, quelle in _UMBENENNEN.items()]
+    teile.append(hole("Gitter").rename("Gitter"))
+
+    # Durchgereichte Eingabespalten, deren Name schon vergeben ist, bekommen ein
+    # Suffix.  Zwei gleichnamige Spalten sind im CSV zwar erlaubt, aber der
+    # Import koennte die falsche erwischen — und damit die alte Koordinate statt
+    # der geokodierten nehmen.
+    vergeben = {s.name for s in teile}
+    for i, spalte in enumerate(out_df.columns):
+        if spalte in genutzt:
+            continue
+        name = spalte
+        if name in vergeben:
+            name = f"{spalte}_original"
+            n = 2
+            while name in vergeben:
+                name, n = f"{spalte}_original{n}", n + 1
+        vergeben.add(name)
+        teile.append(out_df.iloc[:, i].reset_index(drop=True).rename(name))
+    return pd.concat(teile, axis=1)
+
+
 def _print_stats(output_rows: list[dict], unknown_loc_count: int) -> None:
     n = len(output_rows)
     if n == 0:
@@ -347,19 +576,30 @@ def _process_chunk(
         else:
             _debug(i, total, rec, geo, true)
 
+        # Einmal entscheiden, zweimal verwenden — fuer `Gitter` und fuer
+        # `Exakte Koordinaten`.  Siehe objekttyp.py.
+        _punkt = ist_punkt(geo, geostack)
+
         out = {
             "Title": rec.title,
             "Description": rec.description,
             "Periode": parse_periode_pctm(meta.get("periode")),
             "Urheber": meta.get("urheber"),
             "Technik": meta.get("technik"),
-            "Country": rec.country,
+            "Country": _land_de(rec.country),
             "Region": region,
             "City": rec.city,
             "Lat": geo.lat,
             "Lon": geo.lon,
             "Coord-Quality-Score": geo.quality_score,
             "Fallback": geo.fallback,
+            "Gitter": _gitter_m(geo, geo_db, _punkt),
+            # Praezise heisst: ein PUNKTFOERMIGES Objekt wurde gefunden.
+            # Der Typ kommt aus der Quelle selbst (siehe objekttyp.py), nicht
+            # aus Stichwoertern im Namen — sonst haenge es an der Sprache.
+            # Ueberschreibt die durchgereichte Eingabespalte gleichen Namens,
+            # weil `_als_importstruktur()` die SPAETERE Spalte nimmt.
+            "Exakte Koordinaten": _punkt,
             "Ambiguous": geo.ambiguous,
             "Ext-Calls": 1 if (geo.source in ("wikidata","nominatim") and geo.debug_info != ["cache hit"]) else 0,
         }
@@ -519,6 +759,12 @@ def main():
             [chunk_df.reset_index(drop=True), pd.DataFrame(output_rows)],
             axis=1,
         )
+        out_df = _als_importstruktur(out_df)
+        # `Gitter` ist ganzzahlig (Meter).  Enthaelt die Spalte Leerwerte, macht
+        # pandas daraus float64 und schreibt „400.0" — das Zielfeld in Pictomap
+        # ist ein Integer.  Int64 ist der nullbare Ganzzahltyp: leer bleibt leer.
+        if "Gitter" in out_df.columns:
+            out_df["Gitter"] = pd.to_numeric(out_df["Gitter"], errors="coerce").astype("Int64")
         out_df.to_csv(
             out_path,
             mode="w" if first_chunk else "a",
