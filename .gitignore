@@ -15,15 +15,17 @@ Archiv/
 # Eingabe und Code, deshalb nicht versioniert.  Wer einen bestimmten Lauf
 # festhalten will, nimmt ihn mit `git add -f` bewusst dazu.
 #
-# `**/` ist hier Pflicht: ein Muster mit Schrägstrich in der Mitte ist an das
-# Verzeichnis der .gitignore gebunden.  `out/*.csv` hätte nur `<Wurzel>/out/`
-# erfasst und `locationer-v4/out/` glatt durchgelassen.
-# Laufergebnisse, die in v4/ statt in out/ liegen — gleiche Logik.
-**/v4/ZIN_complete_allFields_geo*.csv
-**/v4/ZIN_complete_allFields_geo*.html
+# UMBAU 2026-09-24: Ergebnisse liegen jetzt direkt in der Wurzel neben der
+# Eingabe, nicht mehr in `locationer-v4/out/`.  Die alten Muster `**/out/*.csv`
+# und `**/v4/ZIN_..._geo*` griffen danach ins Leere — `zin_2026-09-06.csv`
+# stand ungeschützt da (250 MB).  Darum an der Wurzel verankert:
+/zin_*.csv
+/zin_*.html
+/nichtzin_*.csv
+/nichtzin_*.html
 
-**/out/*.csv
-**/out/*.html
+# Die Eingabe BLEIBT versioniert (ZIN_complete_allFields.csv, 6.7 MB) — ohne sie
+# ist der Code nicht ausführbar.  Ergebnisse sind daraus reproduzierbar, sie nicht.
 
 # Geheimnisse.  `.env` und `.env.local` standen schon in
 # locationer-v4/.gitignore — `.env.backup` fiel durch das Raster und lag seit
