@@ -2,6 +2,7 @@ import hashlib
 import html
 import json
 import re
+import threading
 from typing import Optional
 
 import anthropic
@@ -207,6 +208,39 @@ class InputNormalizer:
             self._client = anthropic.Anthropic(timeout=60.0, max_retries=3)
         return self._client
 
+    # Harte Wanduhr-Grenze pro Aufruf.  `timeout=60` oben misst nur die Pause
+    # zwischen zwei Datenpaketen; am 2026-10-17 hing ein Aufruf trotzdem 30
+    # Minuten an einer stehenden Verbindung.  Darum laeuft jeder Aufruf in
+    # einem Thread mit Frist: nach _FRIST_S wird er aufgegeben und neu
+    # gestellt; nach _VERSUCHE Fehlschlaegen bricht der Lauf ab (er laesst
+    # sich danach fortsetzen).  Ein aufgegebener Thread laeuft im Hintergrund
+    # aus — sein Ergebnis wird verworfen.  API-Fehler kommen unveraendert
+    # durch (die Wiederholung dafuer macht der Client selbst).
+    _FRIST_S = 120
+    _VERSUCHE = 3
+
+    def _create(self, **kwargs):
+        for versuch in range(1, self._VERSUCHE + 1):
+            ergebnis: dict = {}
+
+            def aufruf():
+                try:
+                    ergebnis["ok"] = self.client.messages.create(**kwargs)
+                except Exception as e:      # im Hauptthread neu werfen
+                    ergebnis["fehler"] = e
+
+            # daemon: ein haengender Thread haelt das Programmende nicht auf
+            t = threading.Thread(target=aufruf, daemon=True)
+            t.start()
+            t.join(self._FRIST_S)
+            if "fehler" in ergebnis:
+                raise ergebnis["fehler"]
+            if "ok" in ergebnis:
+                return ergebnis["ok"]
+            print(f"  [Haiku] keine Antwort nach {self._FRIST_S} s "
+                  f"(Versuch {versuch}/{self._VERSUCHE})")
+        raise TimeoutError(f"Haiku: {self._VERSUCHE}x keine Antwort nach {self._FRIST_S} s")
+
     def normalize_batch(self, rows: list[dict]) -> list[NormalizedRecord]:
         total = len(rows)
         results: list[tuple[int, NormalizedRecord]] = []
@@ -318,7 +352,7 @@ class InputNormalizer:
             lines.append(f'{idx + 1}. "{text}"')
 
         self.haiku_count += 1
-        response = self.client.messages.create(
+        response = self._create(
             model="claude-haiku-4-5-20251001",
             max_tokens=max(len(batch) * 60, 256),
             system=META_SYSTEM_PROMPT,
@@ -356,7 +390,7 @@ class InputNormalizer:
         prompt = "Entries:\n" + "\n".join(lines)
 
         self.haiku_count += 1
-        response = self.client.messages.create(
+        response = self._create(
             model="claude-haiku-4-5-20251001",
             max_tokens=max(len(batch) * 250, 512),
             system=SYSTEM_PROMPT,

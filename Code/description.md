@@ -1222,3 +1222,24 @@ lag bei Varese; „Genève" mit Beschreibung „Frankreich").
 **Falle Testdatei:** liegt `v4/TestFile_geo.csv` schon vollständig vor, setzt
 der Lauf fort, rechnet nichts und die Metrik misst das alte Ergebnis.  Vor
 einem Messlauf die Ausgabe löschen.
+
+### Nachtrag 2026-10-17 abends: ZIN-Lauf, Haiku-Frist, bekannte Lücke
+
+**Haiku-Frist.**  `timeout=60` am Client misst nur die Pause zwischen zwei
+Datenpaketen — ein Aufruf hing trotzdem 30 Minuten.  Jeder Aufruf läuft jetzt
+in einem Daemon-Thread mit harter Frist (`_FRIST_S` = 120 s, 3 Versuche,
+danach Abbruch; Lauf lässt sich fortsetzen).  `input_normalizer._create`.
+
+**ZIN-Lauf gegen September** (`zin_2026-10-17.csv` vs. `zin_2026-09-06-BE Kopie.csv`):
+20562 → 20600 Koordinaten, 19806 unverändert, 225 über 10 km verschoben —
+fast alles Korrekturen (Münster/Müstair 148, Isola Bella, Lenzburg, Pilatus,
+Rigi).  61 verloren, überwiegend zu Recht (vorher in Apulien, Bregenz, falsche
+Eingaberegion); echte Verluste ≈ 15 (Mont-Blanc-Grenzpunkte mit Region Aosta,
+Lac Léman mit Region Genf).
+
+**Bekannte Lücke, bewusst offen gelassen.**  `_in_region` lässt einen Punkt
+gelten, der im Kreis um den Regionsmittelpunkt liegt (Piemont 197 km, Wallis
+≈ 90 km).  So kamen Grimselstrasse → Bern, Monte Calvario → Brescia,
+Oria → Biella durch — rund 20 Zeilen.  Ersatz „nächster Ort der Region
+≤ 15 km" gemessen (fängt sie, kostet Mönchsjoch und Bietschhorn), aber bei
+dieser Grössenordnung nicht eingebaut.
