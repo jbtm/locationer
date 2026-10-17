@@ -362,8 +362,11 @@ CACHE\
 \CocoaLigature1 \
 \pard\pardeftab720\partightenfactor0
 
-\fs72 \cf0 LayerCurator
-\fs28     \
+\fs72 \cf0 LayerCurator: tools.cronica.ch/curator\
+\pard\pardeftab720\partightenfactor0
+
+\fs28 \cf0 Alte Version: tools.cronica.ch/layer.  NICHT MEHR NUTZEN\
+\
 > cd /Users/dec/Documents/PROGRAMMIEREN/python/LayerCurator\
 \
 1) Der LC erstellt eine Offline Version. \
@@ -380,7 +383,18 @@ python3 curator.py --upload-run <run_id>\
 \fs72 \cf0 MAP-SERVER
 \fs28 \
 \pard\pardeftab720\partightenfactor0
-\cf0 \
+\cf0 Benutzer   map\
+Passwort   firn-kachel-kar-54\
+\
+Gepr\'fcft: ohne Anmeldung 401, mit Anmeldung 200.\
+\
+\'c4ndern kannst du es jederzeit auf dem Server:\
+\
+ssh map\
+htpasswd /etc/nginx/map.htpasswd map\
+\
+\
+\
 \
  ok, das heisst https://map.cronica.ch/demo/ ist nicht als iframe umgesetzt?    k\'f6nnten wir nun noch die lab-page mit den reglern bauen in der man das style.json runterladen kann? dann kann ich das in https://map.cronica.ch/demo/ integrieren und sehen ob es funzt?\
 \
@@ -410,6 +424,34 @@ Benutzer   map\
 Passwort   firn-kachel-kar-54\
 \
 Der Browser sollte gerade danach fragen. \'c4ndern kannst du es jederzeit mit htpasswd /etc/nginx/map.htpasswd map auf dem Server.\
+\
+\
+\
+Adressen der Karten: \
+map.cronica.ch/styles/pictomap.json      das Rezept \'97 wie es aussieht\
+map.cronica.ch/planet/\{z\}/\{x\}/\{y\}.pbf    ein Quadrat \'97 welcher Ausschnitt\
+\
+x, y, z: Stell dir ein Schachbrett \'fcber der Weltkarte vor. Der Browser berechnet das aus den Koordinaten:\
+\
+z  =  wie fein das Brett ist\
+x  =  welche Spalte, von links gez\'e4hlt (ab 180\'b0 West)\
+y  =  welche Zeile, von oben gez\'e4hlt (ab dem Nordpol)\
+\
+Bei z=0 ist das Brett ein einziges Feld \'97 die ganze Welt. Jede Stufe halbiert jedes Feld in vier:\
+\
+Und woher der Browser die Zahlen kennt: Er rechnet sie aus. Er weiss ja, worauf er gerade schaut \'97 Mittelpunkt und Zoomstufe stehen in seiner eigenen Karte:\
+\
+x = (L\'e4ngengrad + 180) / 360 \'d7 2^z\
+y = (Mercator-Formel f\'fcr den Breitengrad) \'d7 2^z\
+\
+F\'fcr Oslo auf Stufe 13: x = 4340, y = 2382. Der Server wird nie gefragt, wo Oslo liegt \'97 er bekommt nur /planet/13/4340/2382.pbf und schickt das Quadrat zur\'fcck. Wie ein Postbote, der die Hausnummer liest und nicht fragt, wer dort wohnt.\
+\
+Zieht man die Karte nach rechts, wird aus 4340 eine 4341. Zoomt man eine Stufe tiefer, verdoppeln sich beide Zahlen.\
+\
+\
+\
+\
+\
 \
 Der neue Knopf heisst \'84Rezept herunterladen (style.json)" und sitzt unter \'84Als Vorgabe merken". Er nimmt map.getStyle() \'97 also den Style, wie MapLibre ihn in diesem Moment tats\'e4chlich verwendet, mit allen Reglerst\'e4nden schon eingerechnet. Genau deshalb kann er nicht von dem abweichen, was du siehst: es wird keine Formel nachgebaut, sondern der laufende Zustand abgeschrieben.\
 \

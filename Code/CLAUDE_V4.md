@@ -86,7 +86,7 @@ mv cache/tgn.sqlite /Volumes/LCMT_JBTM/LocationerGeo/tgn.sqlite
 
 ```bash
 python -m v4 v4/TestFile.csv                          # mit Metrik
-python -m v4 v4/ZIN.xlsx --chunk-size 1000 --output out/zin.csv
+python -m v4 ../ZIN.xlsx --chunk-size 1000 --output ../zin.csv
 python -m v4 v4/DIS.xlsx --limit 50 --mode debug
 ```
 

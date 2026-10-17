@@ -22,6 +22,7 @@ from .geo_db import ascii_norm, ascii_norm_de
 from .input_normalizer import InputNormalizer
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
+from .pictomap_ref import REF_PATH as _PICTOMAP_REF_PATH, PictomapRef
 from .wikidata import Wikidata
 from .tgn_db import TgnDatabase
 
@@ -351,6 +352,8 @@ def _gitter_m(geo: GeoResult, geo_db: "GeoDatabase | None",
     """
     if geo.lat is None:
         return None
+    if geo.gitter_m is not None:
+        return geo.gitter_m               # die Quelle kennt ihre Unschaerfe selbst
     if not geo.fallback and geo.quality_score >= 4:
         # Ein punktfoermiges Objekt gilt als praezise verortet — und `gitter = 0`
         # heisst im Curator genau das: „Position bekannt, nicht verschieben".
@@ -533,8 +536,12 @@ def _process_chunk(
 
     # Apply norm_overrides: correct city/country/location extracted by Phase 1 AI
     if geostack.overrides:
+        from .input_normalizer import _map_columns
         for rec, row in zip(normalized, chunk_rows):
-            correction = geostack.overrides.match_norm(_raw_text(row))
+            # Die Stadt, die schon dasteht: aus der Eingabe, sonst von Haiku.
+            # Ein Override darf sie praezisieren, nicht ersetzen (explicit_store.py).
+            stadt = _map_columns(row, _EXTRA_DESC_COLS)["city"] or rec.city
+            correction = geostack.overrides.match_norm(_raw_text(row), stadt)
             if correction:
                 # Country acts as both prerequisite and fill-in: skip the entire
                 # override if the record already has a different country.
@@ -613,6 +620,48 @@ def _process_chunk(
     return output_rows, unknown_loc
 
 
+def _spaltenbericht(df) -> None:
+    """Vor dem Lauf zeigen, welche der fünf Felder in der Eingabe gefunden wurden.
+
+    Der Locationer liest NUR diese fünf Felder; alles andere wird unverändert
+    durchgereicht.  Die Erkennung ist exakter Namensvergleich — „Bildtitel"
+    statt „Titel" und das Feld bleibt leer.  Ohne diese Ausgabe fällt das
+    nirgends auf: der Lauf geht stundenlang durch und findet nichts.
+    """
+    from .input_normalizer import COLUMN_MAP
+
+    vorhanden = {str(c).lower().strip(): str(c) for c in df.columns}
+    genutzt: dict[str, str] = {}
+    verdeckt: list[tuple[str, str]] = []
+    for feld, aliase in COLUMN_MAP.items():
+        treffer = [a for a in aliase if a in vorhanden]
+        if treffer:
+            genutzt[feld] = vorhanden[treffer[0]]
+            verdeckt += [(feld, vorhanden[a]) for a in treffer[1:]]
+
+    print("\nEINGABESPALTEN — gelesen wird nur, was exakt so heisst (Gross/Klein egal):")
+    for feld, aliase in COLUMN_MAP.items():
+        if feld in genutzt:
+            print(f"  {feld:<12} ← „{genutzt[feld]}\"")
+        else:
+            print(f"  {feld:<12} FEHLT    mögliche Namen: {', '.join(aliase)}")
+
+    for feld, name in verdeckt:
+        print(f"  Hinweis: „{name}\" wird NICHT gelesen — „{genutzt[feld]}\" "
+              f"hat Vorrang für {feld}")
+
+    getroffen = {a for aliase in COLUMN_MAP.values() for a in aliase if a in vorhanden}
+    rest = [vorhanden[k] for k in vorhanden if k not in getroffen]
+    if rest:
+        zeige = ", ".join(rest[:8]) + (f" … (+{len(rest) - 8})" if len(rest) > 8 else "")
+        print(f"  durchgereicht, nicht ausgewertet: {zeige}")
+        print("  → einzelne davon der Beschreibung zufüttern: EXTRA_DESC_COLS in .env")
+
+    if not ({"city", "title", "description"} & set(genutzt)):
+        print("\n  ACHTUNG: weder city noch title noch description erkannt.")
+        print("  Der Lauf findet so gut wie nichts. Spaltennamen prüfen, bevor es weitergeht.")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Locationer V4 – geocoding pipeline")
     ap.add_argument("input", help="Input CSV or XLSX file")
@@ -653,6 +702,8 @@ def main():
     print(f"Locationer V4  ·  {total} records  ·  mode={args.mode}"
           + (f"  ·  chunk={args.chunk_size}" if args.chunk_size else "")
           + (f"  ·  ab Zeile {skip_rows + 1}" if skip_rows else ""))
+
+    _spaltenbericht(df)
 
     # COLLECTION_BBOX check
     global _COLLECTION_BBOX
@@ -714,6 +765,17 @@ def main():
     else:
         print("Country DBs: none configured (set COUNTRY_DB_CH etc. in .env)")
 
+    # Pictomap-Referenz (optional — aufbauen mit: python -m v4.pictomap_ref sync)
+    pictomap_ref = None
+    if os.getenv("PICTOMAP_REF", "1") != "0" and Path(_PICTOMAP_REF_PATH).exists():
+        pictomap_ref = PictomapRef(_PICTOMAP_REF_PATH)
+        _last = pictomap_ref.conn.execute(
+            "SELECT value FROM meta WHERE key='last_sync'").fetchone()
+        print(f"Pictomap-Referenz: {pictomap_ref.count()} Punkte"
+              f"  ·  Abgleich {_last[0] if _last else '—'}")
+    else:
+        print("Pictomap-Referenz: aus (python -m v4.pictomap_ref sync)")
+
     import sqlite3 as _sqlite3
     _ext_conn = _sqlite3.connect(_CACHE_DEFAULT)
     nominatim = Nominatim(_ext_conn, base_url=_NOMINATIM_URL, user_agent=_NOMINATIM_UA,
@@ -727,7 +789,8 @@ def main():
     geostack   = GeoStack(geo_db, cache, nominatim,
                           debug=(args.mode == "debug"), overrides=overrides,
                           tgn_db=tgn_db, collection_bbox=_COLLECTION_BBOX,
-                          country_dbs=country_dbs, wikidata=wikidata)
+                          country_dbs=country_dbs, wikidata=wikidata,
+                          pictomap_ref=pictomap_ref)
 
     chunk_size = args.chunk_size or total  # no chunking = one big chunk
 
@@ -783,11 +846,14 @@ def main():
     print(f"Output:          {out_path}")
     print(f"Haiku calls (Phase 1a+1b): {normalizer.haiku_count}")
     print(f"Nominatim calls:           {geostack.ext_count}")
+    print(f"Pictomap-Referenz Treffer: {geostack.pm_count}")
     _print_stats(all_output_rows, total_unknown_loc)
     print()
 
     cache.close()
     overrides.close()
+    if pictomap_ref:
+        pictomap_ref.close()
     _ext_conn.close()
     if geo_db:
         geo_db.close()

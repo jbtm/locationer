@@ -192,6 +192,13 @@ def ist_punkt(geo, geostack) -> bool:
 
     quelle = (geo.source or "").lower()
 
+    # ── Pictomap-Referenz: nie exakt ─────────────────────────────────────────
+    # Der Punkt ist fuer ein ANDERES Bild bestaetigt worden.  Fuer dieses ist
+    # er eine sehr gute Schaetzung, aber keine Bestaetigung — die Unschaerfe
+    # steht in `geo.gitter_m` (Streuung der Referenzpunkte).
+    if quelle.startswith("pictomap_"):
+        return False
+
     # ── GeoNames: ueber den Namen, ueber die Naehe eindeutig gemacht ──────────
     # Die Koordinate IST der Mittelpunkt des Treffers, deshalb kann ein
     # Homonym nicht dazwischenkommen.

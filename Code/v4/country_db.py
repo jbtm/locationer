@@ -91,11 +91,10 @@ class CountryDB:
                 WHERE name_norm = ? AND country_code = ?
                   AND feature_type = 'precise' AND admin1 = ?
             """, (norm, country_code, admin1_hint)).fetchall()
-            if not rows:  # fall through without admin1 constraint
-                rows = self._con.execute("""
-                    SELECT * FROM places
-                    WHERE name_norm = ? AND country_code = ? AND feature_type = 'precise'
-                """, (norm, country_code)).fetchall()
+            # KEIN Rueckfall ohne Region.  Hier stand bis 2026-10-17 „fall
+            # through without admin1 constraint" — eine Region war damit nur ein
+            # Wunsch.  Region und Land sind harte Grenzen (Dec): lieber nichts
+            # als ein Ort im falschen Kanton.
         else:
             rows = self._con.execute("""
                 SELECT * FROM places
@@ -119,12 +118,8 @@ class CountryDB:
                   AND feature_type = 'city' AND admin1 = ?
                 ORDER BY population DESC
             """, (norm, country_code, admin1_hint)).fetchall()
-            if not rows:
-                rows = self._con.execute("""
-                    SELECT * FROM places
-                    WHERE name_norm = ? AND country_code = ? AND feature_type = 'city'
-                    ORDER BY population DESC
-                """, (norm, country_code)).fetchall()
+            # Kein Rueckfall ohne Region — siehe find_precise.  Genau hier
+            # landete „Münster, GR" in Münster VS und „Müstair, ZH" in Müstair.
         else:
             rows = self._con.execute("""
                 SELECT * FROM places

@@ -226,6 +226,7 @@ class GeoStack:
         collection_bbox: "tuple[float,float,float,float] | None" = None,
         country_dbs: "dict[str, CountryDB] | None" = None,
         wikidata: "Wikidata | None" = None,
+        pictomap_ref=None,
     ):
         self.geo_db          = geo_db
         self.cache           = cache
@@ -236,10 +237,63 @@ class GeoStack:
         self.collection_bbox = collection_bbox
         self.country_dbs     = country_dbs or {}
         self.wikidata        = wikidata
+        self.pictomap_ref    = pictomap_ref
+        self.pm_count  = 0  # Treffer aus Pictomap (Stufe 0.5)
         self.ext_count = 0  # Nominatim calls
         self.wd_count  = 0  # Wikidata hits
 
+    # ── Region: harte Grenze ─────────────────────────────────────────────────
+    #
+    # Land UND Region duerfen nie uebergangen werden (Dec, 2026-10-17), gleich
+    # ob die Region aus der Eingabe oder von Haiku stammt.  Bis dahin galt das
+    # nur fuer das Land; die Region war in den Laender-DBs und im
+    # Stadt-Rueckfall ein blosser Hinweis: „Münster, GR, CH" landete in
+    # Münster VS, „Müstair" mit Region Zürich 161 km ausserhalb im Münstertal.
+    #
+    # Geprueft wird in jeder Stufe (damit die naechste es versuchen kann) und
+    # ein letztes Mal in geocode() — kein Ergebnis verlaesst den Geostack
+    # ausserhalb der Region.  Findet sich in der Region nichts, gibt es KEINE
+    # Koordinate (kein Kantonsmittelpunkt, Entscheid Dec).
+    #
+    # Massstab: Abstand zum Kantonsmittelpunkt <= Kantonsradius (weitester
+    # bewohnter Ort + 20 %, geo_db.find_admin1_radius_km).  Fuer Zeilen aus
+    # GeoNames und den Laender-DBs zusaetzlich exakt ueber deren admin1.
+
+    def _region(self, record: NormalizedRecord):
+        """(country_code, admin1, admin1_mittelpunkt, radius_km) — oder Nones."""
+        if not self.geo_db:
+            return None, None, None, None
+        cc = self.geo_db.country_to_code(record.country) if record.country else None
+        a1 = self.geo_db.region_to_admin1(cc, record.region) if (cc and record.region) else None
+        if not a1:
+            return cc, None, None, None
+        mitte = self.geo_db.find_admin1_centroid(cc, a1)
+        radius = self.geo_db.find_admin1_radius_km(cc, a1, mitte) if mitte else None
+        return cc, a1, mitte, radius
+
+    @staticmethod
+    def _in_region(lat, lon, region, admin1=None) -> bool:
+        _, a1, mitte, radius = region
+        if not a1:
+            return True                       # keine Region bekannt
+        if admin1:
+            return admin1 == a1               # die Quelle kennt ihren Kanton
+        if not mitte or not radius:
+            return True
+        return _dist_km(lat, lon, mitte[0], mitte[1]) <= radius
+
     def geocode(self, record: NormalizedRecord) -> GeoResult:
+        region = self._region(record)
+        result = self._geocode(record, region)
+        if result.lat is not None and not self._in_region(result.lat, result.lon, region):
+            # Letzte Sicherung.  Sollte nie greifen, weil jede Stufe selbst
+            # prueft — greift sie doch, fehlt irgendwo eine Pruefung.
+            return GeoResult(debug_info=result.debug_info + [
+                f"VERWORFEN: {result.source} {result.match_name!r} liegt ausserhalb "
+                f"Region {region[1]} — keine Koordinate"])
+        return result
+
+    def _geocode(self, record: NormalizedRecord, region) -> GeoResult:
         # Strip canton/region prefixes that may survive in old norm-cache hits
         # (e.g. "Kanton Luzern" → "Luzern"). _normalize_city handles new records;
         # this ensures stale cached records are treated correctly too.
@@ -257,6 +311,23 @@ class GeoStack:
                     print(f"  [override] {ov.match_name}")
                 return ov
 
+        # ── Step 0.5: Pictomap — von Menschen gesetzte Standorte ─────────────
+        # Vor dem Cache: eine Timeslide- oder Handverortung zum selben Motiv
+        # schlaegt jedes fruehere automatische Ergebnis.  Nicht gecacht — die
+        # Referenztabelle aendert sich mit jedem Abgleich.  Siehe pictomap_ref.py.
+        pm_dbg: list[str] = []
+        if self.pictomap_ref:
+            pm = self.pictomap_ref.match(record)
+            if pm and pm.lat is not None and not self._in_region(pm.lat, pm.lon, region):
+                pm = GeoResult(debug_info=[f"{pm.debug_info[0]} — ausserhalb Region {region[1]}, verworfen"])
+            if pm and pm.lat is not None:
+                self.pm_count += 1
+                if self.debug:
+                    print(f"  [pictomap] {pm.debug_info[0]}")
+                return pm
+            if pm:
+                pm_dbg = pm.debug_info   # verworfen: im Debug-Protokoll zeigen
+
         # ── Step 1: geo_cache ─────────────────────────────────────────────────
         cached = self.cache.get_geo(cache_key)
         if cached and cached.lat is not None:
@@ -272,6 +343,9 @@ class GeoStack:
             # (those entries produce Score 0 by design and should stay cached).
             if bbox_ok and cached.fallback and record.location:
                 bbox_ok = False  # force re-geocode
+            # Der Cache-Schluessel kennt die Region nicht — also hier pruefen.
+            if bbox_ok and not self._in_region(cached.lat, cached.lon, region):
+                bbox_ok = False
             # Proximity check for all Nominatim results (precise and fallback).
             # Catches stale entries where Nominatim returned a canton/region centroid
             # instead of the actual city centre (e.g. "Kanton Luzern" → Hinterland).
@@ -297,7 +371,7 @@ class GeoStack:
             # else: fall through and re-geocode → will return at least Score 3
 
         country_code = self.geo_db.country_to_code(record.country) if self.geo_db else None
-        dbg: list[str] = [f"country_code={country_code}"]
+        dbg: list[str] = pm_dbg + [f"country_code={country_code}"]
 
         # Resolve region name → admin1 code for city disambiguation
         admin1_hint = None
@@ -416,6 +490,8 @@ class GeoStack:
                     dbg.append(f"GEO DB precise {row['name']!r} rejected (outside {country_code} bbox)")
                 elif row and not country_code and not _within_collection_bbox(row["lat"], row["lon"], self.collection_bbox):
                     dbg.append(f"GEO DB precise {row['name']!r} rejected (outside collection bbox)")
+                elif row and not self._in_region(row["lat"], row["lon"], region, row["admin1"]):
+                    dbg.append(f"GEO DB precise {row['name']!r} rejected (region {row['admin1']} ≠ {admin1_hint})")
                 elif row:
                     result = GeoResult(
                         lat=row["lat"], lon=row["lon"], quality_score=5,
@@ -454,6 +530,9 @@ class GeoStack:
                 if tgn_ok and not country_code and not _within_collection_bbox(tgn_lat, tgn_lon, self.collection_bbox):
                     dbg.append(f"TGN {tgn_row['pref_name']!r} rejected (outside collection bbox)")
                     tgn_ok = False
+                if tgn_ok and not self._in_region(tgn_lat, tgn_lon, region):
+                    dbg.append(f"TGN {tgn_row['pref_name']!r} rejected (outside region {admin1_hint})")
+                    tgn_ok = False
                 if tgn_ok:
                     result = GeoResult(
                         lat=tgn_lat, lon=tgn_lon, quality_score=5,
@@ -472,6 +551,9 @@ class GeoStack:
             crow = cdb.find_precise(record.location, country_code,
                                     near=near, radius_km=max(city_radius * 2, 5),
                                     admin1_hint=admin1_hint)
+            if crow and not self._in_region(crow["lat"], crow["lon"], region, crow["admin1"]):
+                dbg.append(f"country_db precise {crow['canonical_name']!r} rejected (region {crow['admin1']} ≠ {admin1_hint})")
+                crow = None
             if crow:
                 result = GeoResult(
                     lat=crow["lat"], lon=crow["lon"], quality_score=5,
@@ -647,6 +729,8 @@ class GeoStack:
                 dbg.append(f"city fallback {city_row['name']!r} rejected (outside {country_code} bbox)")
             elif not country_code and not _within_collection_bbox(city_row["lat"], city_row["lon"], self.collection_bbox):
                 dbg.append(f"city fallback {city_row['name']!r} rejected (outside collection bbox)")
+            elif not self._in_region(city_row["lat"], city_row["lon"], region, city_row["admin1"]):
+                dbg.append(f"city fallback {city_row['name']!r} rejected (region {city_row['admin1']} ≠ {admin1_hint})")
             else:
                 result = GeoResult(
                     lat=city_row["lat"], lon=city_row["lon"], quality_score=3,
@@ -659,6 +743,9 @@ class GeoStack:
         # ── Step 4.5: Country DB city fallback ───────────────────────────────
         if cdb and record.city and not city_row:
             ccrow = cdb.find_city(record.city, country_code, admin1_hint=admin1_hint)
+            if ccrow and not self._in_region(ccrow["lat"], ccrow["lon"], region, ccrow["admin1"]):
+                dbg.append(f"country_db city {ccrow['canonical_name']!r} rejected (region {ccrow['admin1']} ≠ {admin1_hint})")
+                ccrow = None
             if ccrow:
                 result = GeoResult(
                     lat=ccrow["lat"], lon=ccrow["lon"], quality_score=3,
@@ -673,6 +760,9 @@ class GeoStack:
         # Use the early Nominatim city anchor (already fetched above) if available,
         # otherwise try a non-precise ext_result from the location search.
         city_fallback = nm_city_result or (ext_result if ext_result and not ext_result.get("precise") else None)
+        if city_fallback and not self._in_region(city_fallback["lat"], city_fallback["lon"], region):
+            dbg.append(f"city fallback via Nominatim {city_fallback['name']!r} rejected (outside region {admin1_hint})")
+            city_fallback = None
         if city_fallback:
             result = GeoResult(
                 lat=city_fallback["lat"], lon=city_fallback["lon"], quality_score=2,

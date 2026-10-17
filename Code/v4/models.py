@@ -25,3 +25,4 @@ class GeoResult:
     match_name: str = ""
     ambiguous: bool = False  # city anchor matched multiple geographically distant candidates
     debug_info: list = field(default_factory=list)  # populated at runtime, not cached
+    gitter_m: Optional[int] = None  # Unschaerferadius, wenn die Quelle ihn selbst kennt (pictomap_ref)

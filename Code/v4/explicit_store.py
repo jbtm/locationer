@@ -7,11 +7,23 @@ cache so this file can be version-controlled while cache/locationer.sqlite is no
 Pattern syntax:  location|city|country   (* = wildcard for any field)
 """
 
+import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
 from .models import GeoResult
+
+
+def _fold(s: str) -> str:
+    """Klein, ohne Akzente."""
+    s = unicodedata.normalize("NFKD", (s or "").casefold())
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+def _woerter(s: str) -> set:
+    return {w for w in re.split(r"[^a-z0-9]+", _fold(s)) if len(w) >= 3}
 
 
 class ExplicitStore:
@@ -81,13 +93,32 @@ class ExplicitStore:
 
     # ── norm_overrides ────────────────────────────────────────────────────────
 
-    def match_norm(self, raw_text: str) -> Optional[dict]:
-        """Return {city, country, location} corrections if any pattern is found in raw_text.
+    def match_norm(self, raw_text: str, current_city: str = "") -> Optional[dict]:
+        """Return {city, country, location} corrections if a pattern is found in raw_text.
 
         Longer patterns are checked first so specific entries (e.g. 'Lenzerheide')
         win over shorter ones (e.g. 'Lenz').
+
+        ZWEI REGELN (2026-10-17), beide gegen dieselbe Fehlerklasse:
+
+        **Nur ganze Woerter.**  Frueher reichte ein Teilstring: „Münster" traf
+        Grossmünster, Fraumünster, Beromünster; „Lenz" traf Koblenz; „Uors"
+        traf Trais FlUors; „Mühlen" traf Mühlengebäude.  Akzente zaehlen nicht
+        („San Nicla" trifft „San Niclà").
+
+        **Eine Stadt-Korrektur ersetzt keine andere Stadt.**  Steht in der
+        Eingabe schon eine Stadt (`current_city`: Adresse/City-Spalte, sonst
+        Haikus Stadt), greift ein Override, der die Stadt setzt, nur, wenn das
+        MUSTER mit ihr ein Wort teilt — „Sils im Engadin" → „Sils im
+        Engadin/Segl" ja, „Zürich" → „Müstair" nein.  Nicht die Zielstadt
+        mitzaehlen: sonst machte „Münstertal" → „Val Müstair" aus der Adresse
+        „Santa Maria Val Müstair" das ungenauere „Val Müstair".  Am ZIN-Bestand: der alte Münster-Override
+        legte 101 Zürcher, 41 Berner, 22 Basler und 27 Walliser (Münster VS)
+        Bilder nach Müstair; Sur, Tiefencastel, Mon wurden umgestellt, weil in
+        der Beschreibung ein Nachbarort stand.  Die neue Regel aenderte 26
+        Treffergruppen — alle bisherige Fehlgriffe.
         """
-        text_lower = raw_text.lower()
+        text = _fold(raw_text)
         rows = sorted(
             self.conn.execute(
                 "SELECT pattern, city, country, location, note FROM norm_overrides"
@@ -95,15 +126,18 @@ class ExplicitStore:
             key=lambda r: -len(r[0]),
         )
         for pat, city, country, location, _ in rows:
-            if pat.lower() in text_lower:
-                result = {}
-                if city:
-                    result["city"] = city
-                if country:
-                    result["country"] = country
-                if location:
-                    result["location"] = location
-                return result if result else None
+            if not re.search(r"(?<![a-z0-9])" + re.escape(_fold(pat)) + r"(?![a-z0-9])", text):
+                continue
+            if city and current_city and not (_woerter(current_city) & _woerter(pat)):
+                return None   # wuerde eine andere Stadt ersetzen — und kein kuerzeres Muster probieren
+            result = {}
+            if city:
+                result["city"] = city
+            if country:
+                result["country"] = country
+            if location:
+                result["location"] = location
+            return result if result else None
         return None
 
     def add_norm(self, pattern: str, city: str = "", country: str = "",

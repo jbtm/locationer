@@ -6,6 +6,77 @@ Quellen: GeoNames (CC BY 4.0), Getty TGN (ODC-By), OpenStreetMap/Nominatim (ODbL
 
 ---
 
+# SO WIRD DER LOCATIONER GESTARTET
+
+**Immer aus `Code/` heraus.** Die Software verankert `cache/`, `explicit_list/`,
+`.env`, `v4/TestFile.csv` und `TESTLOG.md` am Arbeitsverzeichnis — aus einem
+anderen Ordner aufgerufen findet sie weder Cache noch Overrides.
+
+```bash
+cd /Users/dec/Documents/PROGRAMMIEREN/python/Locationer/Code
+```
+
+### Rauchprobe — laeuft alles?
+
+```bash
+venv/bin/python -m v4 v4/TestFile.csv --limit 10
+```
+
+Fragt einmal nach der Collection-Bbox (Enter = uebernehmen), geokodiert zehn
+Testdatensaetze und haengt eine Zeile an `TESTLOG.md`.
+
+### Voller Lauf
+
+```bash
+caffeinate -i venv/bin/python -m v4 ../ZIN_complete_allFields.csv \
+    --output ../zin_2026-09-25.csv
+```
+
+`caffeinate -i` verhindert den Ruhezustand — ein ZIN-Lauf dauert Stunden.
+Eingabe und Ausgabe liegen eine Ebene hoeher, daher `../`.
+
+**Bricht der Lauf ab, setzt derselbe Befehl an der Abbruchstelle an** (Chunks à
+20 Zeilen, `--chunk-size` aendert das). Wer einen Lauf NEU rechnen will, muss die
+Ausgabedatei vorher wegraeumen oder einen anderen `--output`-Pfad nehmen.
+
+### Einzelnen Fall anschauen
+
+```bash
+venv/bin/python -m v4 v4/TestFile.csv --mode debug --limit 5
+```
+
+`--mode debug` zeigt den vollen Entscheidungsweg durch den Geostack statt der
+kompakten Tabelle.
+
+### Overrides setzen, wenn ein Ort falsch landet
+
+```bash
+venv/bin/python -m v4.overrides list
+venv/bin/python -m v4.overrides add "Cresta||Switzerland" 46.453581 9.542744 "Avers GR"
+venv/bin/python -m v4.overrides norm-add "Avers" --city "Avers" --country "Switzerland"
+venv/bin/python -m v4.overrides remove "Cresta||Switzerland"
+```
+
+### Karte zu einem fertigen Ergebnis
+
+```bash
+venv/bin/python -m v4.map ../zin_2026-09-06.csv      # -> ../zin_2026-09-06_map.html
+```
+
+Der Hauptlauf schreibt die Karte ohnehin mit; das hier ist fuer nachtraeglich
+bearbeitete CSV.
+
+### Cache leeren vor einem Neulauf mit geaenderter Logik
+
+```bash
+venv/bin/python -m v4.clean_cache --help
+```
+
+Ohne das rechnet der Lauf mit alten Zwischenergebnissen weiter und die Aenderung
+wirkt nicht.
+
+---
+
 ## 0. Checkliste: Neue Sammlung einrichten
 
 Vor dem ersten Lauf mit einer neuen Sammlung diese Punkte abarbeiten:
@@ -141,7 +212,7 @@ python -m v4 <input> [--mode human|debug] [--output PATH] [--limit N]
 venv/bin/python -m v4 v4/TestFile.csv --limit 10
 
 # Voller Lauf mit Chunk-Resuming (sicher bei grossen Dateien)
-caffeinate -i venv/bin/python -m v4 v4/ZIN_complete_allFields.csv --output out/zin_geo.csv
+caffeinate -i venv/bin/python -m v4 ../ZIN_complete_allFields.csv --output ../zin_geo.csv
 
 # Detaillierte Entscheidungsausgabe für Debugging eines einzelnen Records
 venv/bin/python -m v4 v4/TestFile.csv --mode debug --limit 5
@@ -344,7 +415,7 @@ Lokaler SQLite-Lookup auf `rec.location`. Der `country_code` (aus `rec.country` 
 
 ## ZIN-Lauf vom 2026-09-06
 
-`out/zin_2026-09-06.csv` — **der erste Lauf mit Importformat, Gitter und
+`../zin_2026-09-06.csv` (frueher `out/zin_2026-09-06.csv`) — **der erste Lauf mit Importformat, Gitter und
 berechneter Exaktheit.** 21.684 Zeilen, 95,7 % mit Koordinate.
 
 ```
@@ -996,9 +1067,23 @@ Mehrere Personen annotieren lokal je eine eigene CSV, die danach zusammengeführ
 
 ## 14. Dateistruktur
 
+**Umbau 2026-09-24:** `locationer-v4/` ist aufgeloest. Code und Metadaten liegen
+in `Locationer/Code/`, Eingabe und Ergebnisse eine Ebene hoeher in `Locationer/`.
+Aufgerufen wird IMMER aus `Code/` heraus — die Software verankert `cache/`,
+`explicit_list/`, `.env`, `v4/TestFile.csv` und `TESTLOG.md` am
+Arbeitsverzeichnis, nicht am Ort des Codes. Darum war am Programm selbst keine
+Zeile zu aendern; nur die Pfade auf der Kommandozeile sind andere.
+
 ```
-locationer-v4/
-├── v4/
+Locationer/
+├── ZIN_complete_allFields.csv   Eingabe (versioniert — ohne sie laeuft nichts)
+├── zin_2026-09-06.csv           Ergebnisse (nicht versioniert)
+├── zin_2026-09-06_wikidata.csv
+├── zin_2026-09-06_map.html
+├── lauf_2026-09-06.log
+├── Archiv/                      aeltere Laeufe, Kantone.xlsx, Mappe2.csv
+├── LocationerGeo/               Geo-Rohdaten und lokale Indizes
+└── Code/
 │   ├── __main__.py          Einstiegspunkt, CLI, Ausgabe
 │   ├── input_normalizer.py  Phase 1a/1b/1c (Haiku + TGN-Lookup)
 │   ├── geostack.py          Phase 2: Entscheidungsbaum
@@ -1025,6 +1110,89 @@ locationer-v4/
 │   └── explicit.sqlite      Manuelle Overrides
 ├── .env                     Konfiguration (nicht in Git)
 ├── .env.example             Vorlage
+├── venv/                    Python 3.11, 7 Pakete (requirements.txt)
 ├── requirements.txt
 └── TESTLOG.md               Messhistorie
 ```
+
+### Aufruf nach dem Umbau
+
+```bash
+cd /Users/dec/Documents/PROGRAMMIEREN/python/Locationer/Code
+
+venv/bin/python -m v4 v4/TestFile.csv --limit 10          # Rauchprobe
+caffeinate -i venv/bin/python -m v4 ../ZIN_complete_allFields.csv \
+    --output ../zin_2026-09-25.csv                        # voller Lauf
+```
+
+`venv/` wurde neu erzeugt statt verschoben: in `bin/activate` und den
+pip-Startzeilen stehen absolute Pfade, ein verschobenes venv ist halb kaputt.
+
+Die `.gitignore` in der Wurzel musste mit: die alten Muster `**/out/*.csv` und
+`**/v4/ZIN_..._geo*` zeigten nach dem Umzug ins Leere, und `zin_2026-09-06.csv`
+stand damit ungeschuetzt da. Jetzt an der Wurzel verankert (`/zin_*.csv`).
+
+---
+
+## 2026-10-16/17 — Rückfluss aus Pictomap, harte Region, Override-Regel
+
+### Rückfluss (Stufe 0.5)
+
+`v4/pictomap_ref.py`.  Bilder, die in Pictomap per Timeslide oder von Hand
+**präzise** verortet wurden, geben ihren Standort an neue Bilder mit demselben
+Motiv (`Objekt | Stadt | Land`) weiter.  Stufe 0.5: nach den Overrides, vor dem
+Cache.  Nie `Exakte Koordinaten`; `Gitter` = Streuung der Referenzpunkte,
+mindestens 100 m; Streuung > 1 km → verworfen.  Ortsansichten (Objekt = Stadt)
+und Bilder ohne Objekt nehmen nicht teil.
+
+```bash
+venv/bin/python -m v4.pictomap_ref sync     # vor einem Lauf; nur lesend
+venv/bin/python -m v4.pictomap_ref stats
+PICTOMAP_REF=0                              # abschalten
+```
+
+**Nur präzise Punkte (Variante A).**  Importierte Koordinaten fliessen nicht
+zurück, auch präzise nicht: bei 1726 von 1831 „manuellen" Verortungen steht
+schlicht die Import-Koordinate, und auch präzise Importe tragen Sammelpunkte
+(Zürich 47.37289/8.52903 mit 52 Bildern und 20 Motiven, als präzise markiert —
+Rest der Müstair-Reparatur vom August).  Gemessen an ZIN (eigene ID
+ausgeschlossen, n = 60 mit Wahrheit): Median-Fehler 169 m → 69 m, 34 besser,
+9 schlechter; 303 Treffer.
+
+### Region ist eine harte Grenze — wie das Land
+
+Vorher war die Region in den Länder-DBs nur ein Wunsch (`country_db.py`
+suchte ohne Region weiter) und im Stadt-Rückfall wirkungslos: „Münster, GR"
+landete in Münster VS, „Müstair" mit Region Zürich 161 km ausserhalb.  Jetzt
+prüft jede Stufe (GeoNames und Länder-DBs exakt über `admin1`, sonst Abstand
+zum Kantonsmittelpunkt ≤ Kantonsradius), dazu eine letzte Sicherung in
+`geocode()`.  Gilt für Region aus der Eingabe und von Haiku gleichermassen.
+**Findet sich in der Region nichts, gibt es keine Koordinate** — kein
+Kantonsmittelpunkt (Entscheid Dec).
+
+### Norm-Overrides: ganze Wörter, keine fremde Stadt ersetzen
+
+`explicit_store.match_norm`.  Der Override `Münster → Müstair` (seit 2026-05-09)
+traf als Teilstring Gross-, Frau-, Berner, Basler Münster und Münster VS: im
+ZIN-Lauf 2026-09-06 lagen 266 Zeilen auf Müstair, davon 23 zu Recht.
+Gelöscht; neu `Münstertal → Val Müstair`.  Neue Regel: nur ganze Wörter, und
+eine Stadt-Korrektur greift nur, wenn das Muster ein Wort mit der schon
+vorhandenen Stadt teilt.  Gegen ZIN geprüft: 26 Treffergruppen ändern sich,
+alle waren Fehlgriffe („Lenz" traf Koblenz, „Uors" Trais FlUors, „Mühlen"
+Mühlengebäude, Sur/Tiefencastel/Mon wegen eines Nachbarorts in der
+Beschreibung).  Alle 234 ZIN-Zeilen mit „Münster" landen jetzt richtig.
+
+### Offen
+
+- **Testmetrik misst nicht mehr.**  `metrics.py` liest `Lat`/`Lon`; seit dem
+  Importformat (2026-08-23) heissen sie `Breitengrad`/`Längengrad` → jede
+  Zeile „kein".  Von Hand nachgerechnet gegenüber Juni: 3 besser, 3 ohne
+  Treffer (Schloss Chillon, Bahnhof „Lzern", Flüelastrasse) — **nicht** durch
+  die Region verursacht (Gegenversuch ohne Regionsprüfung: gleich), sondern
+  weil Haiku dort heute keine Stadt liefert und ohne Stadtanker Wikidata und
+  Nominatim übersprungen werden.
+- Zeilen mit „Lokalisierung unsicher" bekommen weiterhin eine Stadt aus
+  Norm-Overrides (z. B. „Puschlav oder Münstertal?" → Val Müstair).
+- Pictomap trägt die alten Fehler noch: 53 Bilder `city = Müstair` ohne Bezug
+  (41 aus Bern), 31 Zürich/Bern/Basel-Bilder mit Koordinate bei Müstair, 52
+  Bilder am Zürcher Sammelpunkt mit `localization_is_exact = True`.
