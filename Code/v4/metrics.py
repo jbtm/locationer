@@ -56,13 +56,18 @@ def measure(out: pd.DataFrame, google: int) -> dict:
             continue
     else:
         src = pd.read_csv(TESTFILE, sep=sep, quotechar='"', encoding="latin-1", on_bad_lines="skip")
+    # Seit dem Importformat (2026-08-23) heissen die Spalten wie in der
+    # Pictomap-Vorlage.  Bis 2026-10-17 las die Metrik noch `Lat`/`Lon`, fand
+    # nichts und meldete jedes Bild als „kein" — zwei Monate unbemerkt.
+    lat_col, lon_col = (("Breitengrad", "Längengrad") if "Breitengrad" in out.columns
+                        else ("Lat", "Lon"))
     dists, no_ok, no_bad = [], 0, 0
     for i in range(len(src)):
         lt = _try_float(src.iloc[i].get("lat_true"))
         ln = _try_float(src.iloc[i].get("lon_true"))
-        has = i < len(out) and pd.notna(out.iloc[i].get("Lat"))
+        has = i < len(out) and pd.notna(out.iloc[i].get(lat_col))
         if lt is not None and ln is not None:
-            dists.append(_hav(float(out.iloc[i]["Lat"]), float(out.iloc[i]["Lon"]), lt, ln) if has else None)
+            dists.append(_hav(float(out.iloc[i][lat_col]), float(out.iloc[i][lon_col]), lt, ln) if has else None)
         else:
             if has: no_bad += 1
             else:   no_ok  += 1
