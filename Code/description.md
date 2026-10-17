@@ -1196,3 +1196,29 @@ Beschreibung).  Alle 234 ZIN-Zeilen mit „Münster" landen jetzt richtig.
 - Pictomap trägt die alten Fehler noch: 53 Bilder `city = Müstair` ohne Bezug
   (41 aus Bern), 31 Zürich/Bern/Basel-Bilder mit Koordinate bei Müstair, 52
   Bilder am Zürcher Sammelpunkt mit `localization_is_exact = True`.
+
+### Nachtrag 2026-10-17: Suche ohne Stadt, genauere Landesprüfung
+
+**Ohne Stadt nicht aufgeben** (Dec: „Schloss Chillon gehört zu den
+bekanntesten Gebäuden Europas").  Fehlt die Stadt, suchen Wikidata und
+Nominatim im Kanton (Kantonsradius), fehlt auch der, im Land.  Bei einem
+Treffer ergänzt `__main__` die Gemeinde (`geo_db.naechster_ort`: nächster Ort →
+dessen ADM3; in FR/DE ist ADM3 nicht die Gemeinde, dort der Ortsname).
+Alte „nicht gefunden"-Cache-Einträge gelten für Bilder mit Objekt nicht mehr.
+
+**Land/Region für Wikidata, Nominatim, TGN über die Nachbarorte**
+(`geo_db.lage`): die 5 nächsten Orte plus alle bis zur doppelten Entfernung
+des nächsten.  Mindestens einer muss im Land liegen; für die Region einer im
+Kanton oder der Punkt im Kantonskreis.  Rechteck und Kreis allein liessen den
+Ortler (IT) als Bündner Gipfel durch.  Grenzlagen (Genfersee, Basodino,
+Stilfserjoch) gehen durch.
+
+Gemessen: Testdatei 27/9/3/4/2 (bester Juni-Lauf 25/11/3/4/2).  ZIN-Stichprobe
+1419 Zeilen (alle Grenzorte + 500 zufällig) gegen September: 1306 gleich, 53
+> 1 km verschoben — alles Korrekturen (Münster-Fälle, Lenzburg 131 km via
+„Lenz", Lunapark via Rückfluss) —, 2 verloren, beide zu Recht (San Salvatore
+lag bei Varese; „Genève" mit Beschreibung „Frankreich").
+
+**Falle Testdatei:** liegt `v4/TestFile_geo.csv` schon vollständig vor, setzt
+der Lauf fort, rechnet nichts und die Metrik misst das alte Ergebnis.  Vor
+einem Messlauf die Ausgabe löschen.

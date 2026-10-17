@@ -271,13 +271,25 @@ class GeoStack:
         radius = self.geo_db.find_admin1_radius_km(cc, a1, mitte) if mitte else None
         return cc, a1, mitte, radius
 
-    @staticmethod
-    def _in_region(lat, lon, region, admin1=None) -> bool:
-        _, a1, mitte, radius = region
-        if not a1:
-            return True                       # keine Region bekannt
+    def _in_region(self, lat, lon, region, admin1=None) -> bool:
+        """Liegt der Punkt im Land UND in der Region?
+
+        Mit `admin1` (GeoNames, Laender-DBs) exakt.  Sonst:
+          Land    — mindestens einer der 5 naechsten Orte liegt im Land
+                    (geo_db.lage).  Rechteck allein liess den Ortler durch.
+          Region  — einer der 5 naechsten Orte liegt im Kanton, oder der Punkt
+                    liegt im Kantonskreis (Seen ueber mehrere Kantone).
+        """
+        cc, a1, mitte, radius = region
         if admin1:
-            return admin1 == a1               # die Quelle kennt ihren Kanton
+            return not a1 or admin1 == a1     # die Quelle kennt ihren Kanton
+        lage = self.geo_db.lage(lat, lon) if (cc and self.geo_db) else None
+        if lage and cc not in {c for c, _ in lage}:
+            return False
+        if not a1:
+            return True
+        if lage and (cc, a1) in lage:
+            return True
         if not mitte or not radius:
             return True
         return _dist_km(lat, lon, mitte[0], mitte[1]) <= radius
@@ -290,7 +302,7 @@ class GeoStack:
             # prueft — greift sie doch, fehlt irgendwo eine Pruefung.
             return GeoResult(debug_info=result.debug_info + [
                 f"VERWORFEN: {result.source} {result.match_name!r} liegt ausserhalb "
-                f"Region {region[1]} — keine Koordinate"])
+                f"Land {region[0]} / Region {region[1] or '—'} — keine Koordinate"])
         return result
 
     def _geocode(self, record: NormalizedRecord, region) -> GeoResult:
@@ -365,7 +377,9 @@ class GeoStack:
         elif cached and cached.lat is None:
             # Score-0 cache hit: only trust it when there's no city anchor.
             # If we have a city, re-geocode — the city fallback (Score 3) is always possible.
-            if not record.city:
+            # Ebenso mit Objekt: seit 2026-10-17 wird ohne Stadt in Region/Land
+            # gesucht — ein altes „nicht gefunden" darf das nicht verhindern.
+            if not record.city and not record.location:
                 cached.debug_info = ["cache hit: —"]
                 return cached
             # else: fall through and re-geocode → will return at least Score 3
@@ -583,6 +597,23 @@ class GeoStack:
             # Radius for bounded search: expanded for geo features (peaks, glaciers, passes).
             nm_radius = max(city_radius * 4, 15) if geo_feature else city_radius
 
+            # Suchraum.  Normalfall: um die Stadt.  OHNE STADT nicht aufgeben
+            # (Dec, 2026-10-17): „Schloss Chillon" ohne Ortsangabe ist eines der
+            # bekanntesten Gebaeude Europas.  Dann sucht der Kanton, und fehlt
+            # auch der, das Land.  Die Schranken bleiben dieselben — Land- und
+            # Regionspruefung weiter unten, bei Wikidata exakte Namensgleichheit.
+            # Die Stadt ergaenzt __main__ danach aus dem Treffer.
+            anker, anker_r = near, nm_radius
+            if anker is None and record.location:
+                if admin1_near and region[3]:
+                    anker, anker_r = admin1_near, region[3]
+                    dbg.append(f"Suchraum ohne Stadt: Region {admin1_hint} (r={anker_r:.0f} km)")
+                elif country_code and country_code in _COUNTRY_BBOX and country_code != "ZZ":
+                    a, b, c, d = _COUNTRY_BBOX[country_code]
+                    anker = ((a + b) / 2, (c + d) / 2)
+                    anker_r = _dist_km(a, c, b, d) / 2
+                    dbg.append(f"Suchraum ohne Stadt: Land {country_code} (r={anker_r:.0f} km)")
+
             # ── Step 3a: Wikidata ─────────────────────────────────────────────
             # Vor Nominatim, weil Wikidata historische und umgangssprachliche
             # Namen als Aliasnamen fuehrt: „Stadttheater Zürich" → Opernhaus,
@@ -613,9 +644,9 @@ class GeoStack:
             # ist ein Punkt ohnehin willkuerlich, und welche Quelle naeher an der
             # Aufnahme liegt, ist Zufall.  Die vierte war schon vorher 3 km daneben.
             wd = None
-            if self.wikidata and near and record.location:
+            if self.wikidata and anker and record.location:
                 wd = self.wikidata.finde(record.location, record.city or "",
-                                         near=near, max_dist_km=nm_radius,
+                                         near=anker, max_dist_km=anker_r,
                                          lang=_wikidata_lang(country_code))
                 if wd:
                     self.wd_count += 1
@@ -630,22 +661,22 @@ class GeoStack:
             nm = None
             if wd:
                 pass            # Treffer steht — Nominatim eruebrigt sich
-            elif near and record.location:
+            elif anker and record.location:
                 # Bounded search: constrain to city radius so any result is guaranteed
                 # to be in the right area, even if the query string is imprecise.
                 # Query is just the location name — city context comes from the viewbox.
                 nm_query = record.location
-                dbg.append(f"Nominatim bounded query: {nm_query!r} (r={nm_radius:.0f}km)")
-                nm = self.nominatim.search_bounded(nm_query, near[0], near[1], nm_radius)
+                dbg.append(f"Nominatim bounded query: {nm_query!r} (r={anker_r:.0f}km)")
+                nm = self.nominatim.search_bounded(nm_query, anker[0], anker[1], anker_r)
                 if nm is None:
                     # Retry with location + city in case Nominatim needs the city name
                     dbg.append(f"Nominatim bounded retry: {query!r}")
-                    nm = self.nominatim.search_bounded(query, near[0], near[1], nm_radius)
+                    nm = self.nominatim.search_bounded(query, anker[0], anker[1], anker_r)
                 if nm is None and record.geocoding_queries:
                     # Try Haiku-generated local-language queries (e.g. "Cathédrale Saint-Pierre Genève")
                     for gq in record.geocoding_queries:
                         dbg.append(f"Nominatim bounded geocoding_query: {gq!r}")
-                        nm = self.nominatim.search_bounded(gq, near[0], near[1], nm_radius)
+                        nm = self.nominatim.search_bounded(gq, anker[0], anker[1], anker_r)
                         if nm:
                             break
             else:
@@ -661,7 +692,7 @@ class GeoStack:
                 # Proximity check as secondary guard (bounded results already constrained,
                 # unbounded results still need filtering against city/admin1 anchor).
                 effective_near = near or admin1_near
-                threshold = nm_radius if near else 100
+                threshold = nm_radius if near else (anker_r if anker else 100)
                 if nm.get("precise") and effective_near and record.location:
                     dist = _dist_km(nm["lat"], nm["lon"], effective_near[0], effective_near[1])
                     if dist > threshold:

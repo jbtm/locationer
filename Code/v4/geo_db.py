@@ -116,6 +116,10 @@ def _dist_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+# Laender, in denen GeoNames-ADM3 die Gemeinde ist (naechster_ort).
+_GEMEINDE_IST_ADM3 = {"CH", "LI", "AT", "IT"}
+
+
 class GeoDatabase:
     def __init__(self, db_path: str):
         self.conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -390,6 +394,85 @@ class GeoDatabase:
             is_ambiguous = dist > 30.0
 
         return candidates[0], is_ambiguous
+
+    def lage(self, lat: float, lon: float, max_km: float = 20.0) -> "set | None":
+        """{(Land, Kanton), …} der naechsten Orte — wo ein Punkt liegen kann.
+
+        Fuer Treffer, deren Quelle Land und Kanton nicht mitliefert (Wikidata,
+        Nominatim, TGN).  Rechteck und Kantonskreis sind dafuer zu grob: der
+        Ortler (Italien) liegt in beiden — im CH-Rechteck und 72 km vom
+        Buendner Mittelpunkt; seine 5 naechsten Orte sind alle italienisch.
+        Eine MENGE, keine Mehrheit: beim Basodino (Grenzgipfel TI/IT) sind
+        die meisten Nachbardoerfer italienisch, und der Vierwaldstaettersee
+        gehoert mehreren Kantonen — beide sollen durchgehen.
+        None, wenn im Umkreis kein Ort liegt.
+        """
+        key = (round(lat, 3), round(lon, 3))
+        if not hasattr(self, "_lage_cache"):
+            self._lage_cache: dict = {}
+        if key in self._lage_cache:
+            return self._lage_cache[key]
+        d = max_km / 111.0
+        dlon = d / max(math.cos(math.radians(lat)), 0.01)
+        orte = []
+        for la, lo, cc, a1 in self.conn.execute(
+                "SELECT lat, lon, country_code, admin1 FROM geofeature "
+                "WHERE feature_class='P' AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? "
+                "AND feature_code IN ('PPL','PPLA','PPLA2','PPLA3','PPLA4','PPLC')",
+                (lat - d, lat + d, lon - dlon, lon + dlon)):
+            dist = math.hypot(la - lat, (lo - lon) * math.cos(math.radians(lat))) * 111.0
+            if dist <= max_km:
+                orte.append((dist, cc, a1))
+        orte.sort()
+        if not orte:
+            self._lage_cache[key] = None
+            return None
+        # Die 5 naechsten UND alle bis zur doppelten Entfernung des naechsten:
+        # mitten im Genfersee sind die 5 naechsten Orte franzoesisch, das
+        # Schweizer Ufer liegt nur wenig weiter.  Der Ortler liegt 4 km neben
+        # Sulden — doppelte Entfernung bleibt in Italien.
+        grenze = 2 * orte[0][0]
+        menge = {(o[1], o[2]) for k, o in enumerate(orte) if k < 5 or o[0] <= grenze}
+        self._lage_cache[key] = menge
+        return menge
+
+    def naechster_ort(self, lat: float, lon: float, country_code: "str | None" = None,
+                      admin1: "str | None" = None, max_km: float = 10.0) -> "str | None":
+        """Gemeinde des naechsten Orts — fuer eine fehlende Stadt.
+
+        Der naechste Ort allein waere oft ein Weiler („Schloss Chillon" →
+        Grandchamp, „Flüelastrasse" → Bünda).  Deshalb ueber dessen `admin3`
+        die Gemeinde (ADM3: Veytaux, Davos); fehlt sie, der Ort selbst.
+        Ueber den Klassen-/Koordinatenindex `idx_geofeature_class_latlon`.
+        """
+        d = max_km / 111.0
+        dlon = d / max(math.cos(math.radians(lat)), 0.01)
+        sql = ("SELECT name, lat, lon, country_code, admin1, admin3 FROM geofeature "
+               "WHERE feature_class='P' AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? "
+               "AND feature_code IN ('PPL','PPLA','PPLA2','PPLA3','PPLA4','PPLC')")
+        args = [lat - d, lat + d, lon - dlon, lon + dlon]
+        if country_code:
+            sql += " AND country_code=?"; args.append(country_code)
+        if admin1:
+            sql += " AND admin1=?"; args.append(admin1)
+        beste = None
+        for name, la, lo, cc, a1, a3 in self.conn.execute(sql, args):
+            dist = math.hypot(la - lat, (lo - lon) * math.cos(math.radians(lat))) * 111.0
+            if dist <= max_km and (beste is None or dist < beste[0]):
+                beste = (dist, name, cc, a1, a3)
+        if not beste:
+            return None
+        _, name, cc, a1, a3 = beste
+        # Die Gemeinde liegt nicht in jedem Land auf derselben Ebene: in
+        # Frankreich ist ADM3 das Arrondissement, die Commune erst ADM4.
+        # Wo die Ebene nicht sicher ist, bleibt es beim Ortsnamen.
+        if a3 and cc in _GEMEINDE_IST_ADM3:
+            g = self.conn.execute(
+                "SELECT name FROM geofeature WHERE feature_code='ADM3' "
+                "AND country_code=? AND admin1=? AND admin3=? LIMIT 1", (cc, a1, a3)).fetchone()
+            if g:
+                return g[0]
+        return name
 
     def find_admin1_centroid(self, country_code: str, admin1_code: str) -> "tuple[float, float] | None":
         """Return (lat, lon) of the ADM1 feature (canton/state/province) centroid."""

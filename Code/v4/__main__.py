@@ -573,6 +573,17 @@ def _process_chunk(
         else:
             geo = geostack.geocode(rec)
 
+        # Stadt ergaenzen, wenn sie fehlte und ein Objekt gefunden wurde
+        # (Suchraum Region/Land, geostack.py).  Naechster Ort in derselben
+        # Region — „Schloss Chillon" → Veytaux.
+        if not rec.city and geo.lat is not None and not geo.fallback and geo_db:
+            _cc = geo_db.country_to_code(rec.country) if rec.country else None
+            _a1 = geo_db.region_to_admin1(_cc, rec.region) if (_cc and rec.region) else None
+            _ort = geo_db.naechster_ort(geo.lat, geo.lon, _cc, _a1)
+            if _ort:
+                rec.city = _ort
+                geo.debug_info.append(f"Stadt ergaenzt: {_ort}")
+
         true = _true_coords(row) if has_true_coords else None
         dev_km = _haversine_km(geo.lat, geo.lon, true[0], true[1]) if (true and geo.lat is not None) else None
         region = _get_region(geo_db, rec, geo)
