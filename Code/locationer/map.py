@@ -1,7 +1,7 @@
 """Generate a Leaflet QA map from a _geo.csv.
 
 Usage:
-    python -m v4.map path/to/output_geo.csv [--no-open]
+    python -m locationer.map path/to/output_geo.csv [--no-open]
 """
 import argparse
 import json
@@ -151,7 +151,7 @@ function downloadAnno(){
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Locationer V4 — QA map")
+    ap = argparse.ArgumentParser(description="Locationer — QA map")
     ap.add_argument("input", help="*_geo.csv from locationer")
     ap.add_argument("--no-open", action="store_true")
     args = ap.parse_args()

@@ -1,4 +1,4 @@
-# Locationer V4 — Beschreibung
+# Locationer — Beschreibung
 
 Geocoding-Pipeline für historische Fotoarchive. Liest CSV/XLSX, extrahiert Ortsinformationen mit Claude Haiku und löst diese zu GPS-Koordinaten auf — ohne Google Places API.
 
@@ -9,7 +9,7 @@ Quellen: GeoNames (CC BY 4.0), Getty TGN (ODC-By), OpenStreetMap/Nominatim (ODbL
 # SO WIRD DER LOCATIONER GESTARTET
 
 **Immer aus `Code/` heraus.** Die Software verankert `cache/`, `explicit_list/`,
-`.env`, `v4/TestFile.csv` und `TESTLOG.md` am Arbeitsverzeichnis — aus einem
+`.env`, `locationer/TestFile.csv` und `TESTLOG.md` am Arbeitsverzeichnis — aus einem
 anderen Ordner aufgerufen findet sie weder Cache noch Overrides.
 
 ```bash
@@ -19,16 +19,20 @@ cd /Users/dec/Documents/PROGRAMMIEREN/python/Locationer/Code
 ### Rauchprobe — laeuft alles?
 
 ```bash
-venv/bin/python -m v4 v4/TestFile.csv --limit 10
+venv/bin/python -m locationer locationer/TestFile.csv --limit 10
 ```
 
 Fragt einmal nach der Collection-Bbox (Enter = uebernehmen), geokodiert zehn
-Testdatensaetze und haengt eine Zeile an `TESTLOG.md`.
+Testdatensaetze und haengt eine Zeile an `TESTLOG.md`. Die Collection-Bbox
+ist ein grober geografischer Rahmen der ganzen Sammlung (z. B. Graubünden
+für ZIN, aus `COLLECTION_BBOX` in `.env`) und wirkt im Geostack als
+Plausibilitätsfilter, sobald kein Land ermittelbar ist — ohne gesetzten
+Wert (Enter bei "nicht gesetzt") läuft alles einfach ohne diesen Filter.
 
 ### Voller Lauf
 
 ```bash
-caffeinate -i venv/bin/python -m v4 ../ZIN_complete_allFields.csv \
+caffeinate -i venv/bin/python -m locationer ../ZIN_complete_allFields.csv \
     --output ../zin_2026-09-25.csv
 ```
 
@@ -42,7 +46,7 @@ Ausgabedatei vorher wegraeumen oder einen anderen `--output`-Pfad nehmen.
 ### Einzelnen Fall anschauen
 
 ```bash
-venv/bin/python -m v4 v4/TestFile.csv --mode debug --limit 5
+venv/bin/python -m locationer locationer/TestFile.csv --mode debug --limit 5
 ```
 
 `--mode debug` zeigt den vollen Entscheidungsweg durch den Geostack statt der
@@ -51,16 +55,16 @@ kompakten Tabelle.
 ### Overrides setzen, wenn ein Ort falsch landet
 
 ```bash
-venv/bin/python -m v4.overrides list
-venv/bin/python -m v4.overrides add "Cresta||Switzerland" 46.453581 9.542744 "Avers GR"
-venv/bin/python -m v4.overrides norm-add "Avers" --city "Avers" --country "Switzerland"
-venv/bin/python -m v4.overrides remove "Cresta||Switzerland"
+venv/bin/python -m locationer.overrides list
+venv/bin/python -m locationer.overrides add "Cresta||Switzerland" 46.453581 9.542744 "Avers GR"
+venv/bin/python -m locationer.overrides norm-add "Avers" --city "Avers" --country "Switzerland"
+venv/bin/python -m locationer.overrides remove "Cresta||Switzerland"
 ```
 
 ### Karte zu einem fertigen Ergebnis
 
 ```bash
-venv/bin/python -m v4.map ../zin_2026-09-06.csv      # -> ../zin_2026-09-06_map.html
+venv/bin/python -m locationer.map ../zin_2026-09-06.csv      # -> ../zin_2026-09-06_map.html
 ```
 
 Der Hauptlauf schreibt die Karte ohnehin mit; das hier ist fuer nachtraeglich
@@ -69,7 +73,7 @@ bearbeitete CSV.
 ### Cache leeren vor einem Neulauf mit geaenderter Logik
 
 ```bash
-venv/bin/python -m v4.clean_cache --help
+venv/bin/python -m locationer.clean_cache --help
 ```
 
 Ohne das rechnet der Lauf mit alten Zwischenergebnissen weiter und die Aenderung
@@ -125,11 +129,11 @@ COLLECTION_BBOX=43.0,62.0,-5.0,20.0    # Schweiz + Europa
 
 ```bash
 # Erst 20 Zeilen testen
-python -m v4 meine_sammlung.csv --limit 20 --mode debug
+python -m locationer meine_sammlung.csv --limit 20 --mode debug
 
 # Karte anschauen — sind die Treffer plausibel?
 # Dann vollen Lauf starten mit caffeinate (verhindert Sleep bei Nachtläufen):
-caffeinate -i python -m v4 meine_sammlung.csv
+caffeinate -i python -m locationer meine_sammlung.csv
 ```
 
 ### Optionale Verbesserungen nach erstem Lauf
@@ -181,10 +185,10 @@ TGN liefert ausschliesslich **Koordinaten** wenn Step 2.5 gewinnt. Koordinaten s
 
 ```bash
 source venv/bin/activate
-python -m v4 v4/TestFile.csv
+python -m locationer locationer/TestFile.csv
 
 # Nachtlauf ohne Sleep-Unterbruch:
-caffeinate -i python -m v4 meine_sammlung.csv
+caffeinate -i python -m locationer meine_sammlung.csv
 ```
 
 ---
@@ -192,7 +196,7 @@ caffeinate -i python -m v4 meine_sammlung.csv
 ## 3. Hauptpipeline — Aufruf und Parameter
 
 ```
-python -m v4 <input> [--mode human|debug] [--output PATH] [--limit N]
+python -m locationer <input> [--mode human|debug] [--output PATH] [--limit N]
                      [--chunk-size N] [--geo-db PATH]
 ```
 
@@ -209,16 +213,16 @@ python -m v4 <input> [--mode human|debug] [--output PATH] [--limit N]
 
 ```bash
 # Testlauf, erste 10 Zeilen
-venv/bin/python -m v4 v4/TestFile.csv --limit 10
+venv/bin/python -m locationer locationer/TestFile.csv --limit 10
 
 # Voller Lauf mit Chunk-Resuming (sicher bei grossen Dateien)
-caffeinate -i venv/bin/python -m v4 ../ZIN_complete_allFields.csv --output ../zin_geo.csv
+caffeinate -i venv/bin/python -m locationer ../ZIN_complete_allFields.csv --output ../zin_geo.csv
 
 # Detaillierte Entscheidungsausgabe für Debugging eines einzelnen Records
-venv/bin/python -m v4 v4/TestFile.csv --mode debug --limit 5
+venv/bin/python -m locationer locationer/TestFile.csv --mode debug --limit 5
 
 # Andere GEO DB (z.B. Europa-only)
-venv/bin/python -m v4 meinedaten.csv --geo-db /Volumes/LCMT_JBTM/LocationerGeo/locationer_geo_EUROPA.sqlite
+venv/bin/python -m locationer meinedaten.csv --geo-db /Volumes/LCMT_JBTM/LocationerGeo/locationer_geo_EUROPA.sqlite
 ```
 
 ### Eingabeformat
@@ -266,7 +270,7 @@ Die Ortsangaben kommen bewusst aus dem Geocoding und nicht aus der Eingabe — s
 Umgesetzt in `_als_importstruktur()`; die Zuordnung steht in `_UMBENENNEN`, die Vorlagenreihenfolge in `PICTOMAP_SPALTEN`. **Es wird ausschliesslich umbenannt und umsortiert**, keine Werte werden neu berechnet.
 
 > **Die QA-Karte liest intern weiter `Lat`, `Lon`, `Title`, `City`, `Country`.**
-> `v4/map.py` legt diese Namen beim Einlesen als Alias auf die Vorlagenspalten,
+> `locationer/map.py` legt diese Namen beim Einlesen als Alias auf die Vorlagenspalten,
 > damit sowohl neue als auch alte Ausgabedateien funktionieren.
 
 ### Zwei offene Punkte vor dem ersten Massenimport — erledigt am 2026-09-06
@@ -678,7 +682,7 @@ TGN          place_type                     aus tgn_place
 Wikidata     —                              nur label gespeichert
 ```
 
-Umgesetzt in `v4/objekttyp.py`. **Kein neues Feld auf `GeoResult`, keine
+Umgesetzt in `locationer/objekttyp.py`. **Kein neues Feld auf `GeoResult`, keine
 Neu-Geokodierung**: der Typ wird beim Schreiben der Zeile nachgeschlagen, aus
 denselben persistenten Speichern, aus denen die Koordinate kam. Schlüssel ist,
 was `GeoResult` ohnehin trägt — `source`, `match_name`, `lat`, `lon`.
@@ -797,13 +801,13 @@ Ergänzung zur globalen GeoNames-DB mit vollständigen Alternativnamen pro Land 
 
 ```bash
 # Einzelnes Land
-python -m v4.import_country CH --output /path/to/ch_country.sqlite
+python -m locationer.import_country CH --output /path/to/ch_country.sqlite
 
 # Mehrere Länder auf einmal
-python -m v4.import_country CH DE FR IT AT NO --output-dir /path/to/dir/
+python -m locationer.import_country CH DE FR IT AT NO --output-dir /path/to/dir/
 
 # Statistik anzeigen
-python -m v4.import_country CH --check
+python -m locationer.import_country CH --check
 
 # .env eintragen (nicht vorhandene Einträge werden ignoriert)
 COUNTRY_DB_CH=/path/to/ch_country.sqlite
@@ -857,7 +861,7 @@ Bounded-Suchanfragen werden mit einem eigenen Cache-Key gespeichert (`bounded|la
 
 ```bash
 # Erster Lauf (oder Resume nach Unterbruch — gleicher Befehl):
-python -m v4 v4/ZIN_complete.csv
+python -m locationer locationer/ZIN_complete.csv
 ```
 
 ---
@@ -872,15 +876,15 @@ Fixer Koordinatenpunkt für ein Pattern `location|city|country`. `*` = Wildcard.
 
 ```bash
 # Hinzufügen
-python -m v4.overrides add "Cresta||Switzerland" 46.453581 9.542744 "Avers GR" "Bemerkung"
-python -m v4.overrides add "*|Avers|Switzerland" 46.453581 9.542744 "Avers GR"
-python -m v4.overrides add "Cresta|*|Switzerland" 46.453581 9.542744 "Avers GR" --score 5
+python -m locationer.overrides add "Cresta||Switzerland" 46.453581 9.542744 "Avers GR" "Bemerkung"
+python -m locationer.overrides add "*|Avers|Switzerland" 46.453581 9.542744 "Avers GR"
+python -m locationer.overrides add "Cresta|*|Switzerland" 46.453581 9.542744 "Avers GR" --score 5
 
 # Alle anzeigen
-python -m v4.overrides list
+python -m locationer.overrides list
 
 # Entfernen
-python -m v4.overrides remove "Cresta||Switzerland"
+python -m locationer.overrides remove "Cresta||Switzerland"
 ```
 
 Patternformat:
@@ -894,14 +898,14 @@ Korrigiert city/country wenn Haiku systematisch falsch liegt. Substring-Match au
 
 ```bash
 # Hinzufügen
-python -m v4.overrides norm-add "Avers" --city "Avers" --country "Switzerland"
-python -m v4.overrides norm-add "Calancatal" --country "Switzerland"
+python -m locationer.overrides norm-add "Avers" --city "Avers" --country "Switzerland"
+python -m locationer.overrides norm-add "Calancatal" --country "Switzerland"
 
 # Alle anzeigen
-python -m v4.overrides norm-list
+python -m locationer.overrides norm-list
 
 # Entfernen
-python -m v4.overrides norm-remove "Avers"
+python -m locationer.overrides norm-remove "Avers"
 ```
 
 Norm-Overrides greifen nur wenn das entsprechende Feld im Haiku-Output leer ist (sie ergänzen, überschreiben nicht).
@@ -918,16 +922,16 @@ Einmalig ausführen. Liest direkt aus dem lokalen ZIP, kein vollständiges Entpa
 
 ```bash
 # Empfohlen: aus lokalem ZIP
-python -m v4.import_tgn --from-zip cache/tgn_xml_0126.zip --output cache/tgn.sqlite
+python -m locationer.import_tgn --from-zip cache/tgn_xml_0126.zip --output cache/tgn.sqlite
 
 # Alternativ: aus entpacktem Verzeichnis
-python -m v4.import_tgn --from-dir cache/tgn --output cache/tgn.sqlite
+python -m locationer.import_tgn --from-dir cache/tgn --output cache/tgn.sqlite
 
 # Direkt von Getty herunterladen (~600 MB)
-python -m v4.import_tgn --download --output cache/tgn.sqlite
+python -m locationer.import_tgn --download --output cache/tgn.sqlite
 
 # Statistik anzeigen
-python -m v4.import_tgn --check --output cache/tgn.sqlite
+python -m locationer.import_tgn --check --output cache/tgn.sqlite
 
 # Datei auf Volume verschieben, dann .env anpassen
 mv cache/tgn.sqlite /Volumes/LCMT_JBTM/LocationerGeo/tgn.sqlite
@@ -998,7 +1002,7 @@ Wenn `country` bekannt ist, greifen die länderspezifischen Bounding Boxes — `
 
 ## 11. Testmetrik
 
-Wenn `input` identisch mit `v4/TestFile.csv` ist, berechnet die Pipeline automatisch eine Qualitätsmetrik und schreibt sie in `TESTLOG.md`.
+Wenn `input` identisch mit `locationer/TestFile.csv` ist, berechnet die Pipeline automatisch eine Qualitätsmetrik und schreibt sie in `TESTLOG.md`.
 
 Voraussetzung: `TestFile.csv` muss Spalten `lat_true`/`lon_true` mit verifizierten Referenzkoordinaten enthalten.
 
@@ -1043,7 +1047,7 @@ Nominatim calls:           14
 Die Karte wird **automatisch nach jedem Lauf** generiert und im Browser geöffnet. Manueller Aufruf:
 
 ```bash
-python -m v4.map v4/ZIN_complete_geo.csv
+python -m locationer.map locationer/ZIN_complete_geo.csv
 ```
 
 **Popup-Inhalt:** Titel, City, Country, Score, Periode, Urheber, Δ-Abweichung, CSV-Zeilennummer, klickbare Links (URL-Spalten automatisch erkannt). `[?]`-Badge bei ambiguous.
@@ -1070,7 +1074,7 @@ Mehrere Personen annotieren lokal je eine eigene CSV, die danach zusammengeführ
 **Umbau 2026-09-24:** `locationer-v4/` ist aufgeloest. Code und Metadaten liegen
 in `Locationer/Code/`, Eingabe und Ergebnisse eine Ebene hoeher in `Locationer/`.
 Aufgerufen wird IMMER aus `Code/` heraus — die Software verankert `cache/`,
-`explicit_list/`, `.env`, `v4/TestFile.csv` und `TESTLOG.md` am
+`explicit_list/`, `.env`, `locationer/TestFile.csv` und `TESTLOG.md` am
 Arbeitsverzeichnis, nicht am Ort des Codes. Darum war am Programm selbst keine
 Zeile zu aendern; nur die Pfade auf der Kommandozeile sind andere.
 
@@ -1120,8 +1124,8 @@ Locationer/
 ```bash
 cd /Users/dec/Documents/PROGRAMMIEREN/python/Locationer/Code
 
-venv/bin/python -m v4 v4/TestFile.csv --limit 10          # Rauchprobe
-caffeinate -i venv/bin/python -m v4 ../ZIN_complete_allFields.csv \
+venv/bin/python -m locationer locationer/TestFile.csv --limit 10          # Rauchprobe
+caffeinate -i venv/bin/python -m locationer ../ZIN_complete_allFields.csv \
     --output ../zin_2026-09-25.csv                        # voller Lauf
 ```
 
@@ -1129,7 +1133,7 @@ caffeinate -i venv/bin/python -m v4 ../ZIN_complete_allFields.csv \
 pip-Startzeilen stehen absolute Pfade, ein verschobenes venv ist halb kaputt.
 
 Die `.gitignore` in der Wurzel musste mit: die alten Muster `**/out/*.csv` und
-`**/v4/ZIN_..._geo*` zeigten nach dem Umzug ins Leere, und `zin_2026-09-06.csv`
+`**/locationer/ZIN_..._geo*` zeigten nach dem Umzug ins Leere, und `zin_2026-09-06.csv`
 stand damit ungeschuetzt da. Jetzt an der Wurzel verankert (`/zin_*.csv`).
 
 ---
@@ -1138,7 +1142,7 @@ stand damit ungeschuetzt da. Jetzt an der Wurzel verankert (`/zin_*.csv`).
 
 ### Rückfluss (Stufe 0.5)
 
-`v4/pictomap_ref.py`.  Bilder, die in Pictomap per Timeslide oder von Hand
+`locationer/pictomap_ref.py`.  Bilder, die in Pictomap per Timeslide oder von Hand
 **präzise** verortet wurden, geben ihren Standort an neue Bilder mit demselben
 Motiv (`Objekt | Stadt | Land`) weiter.  Stufe 0.5: nach den Overrides, vor dem
 Cache.  Nie `Exakte Koordinaten`; `Gitter` = Streuung der Referenzpunkte,
@@ -1146,8 +1150,8 @@ mindestens 100 m; Streuung > 1 km → verworfen.  Ortsansichten (Objekt = Stadt)
 und Bilder ohne Objekt nehmen nicht teil.
 
 ```bash
-venv/bin/python -m v4.pictomap_ref sync     # vor einem Lauf; nur lesend
-venv/bin/python -m v4.pictomap_ref stats
+venv/bin/python -m locationer.pictomap_ref sync     # vor einem Lauf; nur lesend
+venv/bin/python -m locationer.pictomap_ref stats
 PICTOMAP_REF=0                              # abschalten
 ```
 
@@ -1219,7 +1223,7 @@ Gemessen: Testdatei 27/9/3/4/2 (bester Juni-Lauf 25/11/3/4/2).  ZIN-Stichprobe
 „Lenz", Lunapark via Rückfluss) —, 2 verloren, beide zu Recht (San Salvatore
 lag bei Varese; „Genève" mit Beschreibung „Frankreich").
 
-**Falle Testdatei:** liegt `v4/TestFile_geo.csv` schon vollständig vor, setzt
+**Falle Testdatei:** liegt `locationer/TestFile_geo.csv` schon vollständig vor, setzt
 der Lauf fort, rechnet nichts und die Metrik misst das alte Ergebnis.  Vor
 einem Messlauf die Ausgabe löschen.
 

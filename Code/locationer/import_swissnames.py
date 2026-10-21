@@ -11,15 +11,15 @@ No city-type entries: Swiss cities are already well covered by GeoNames CH.
 Coordinates: LV95 (EPSG:2056) → WGS84 via swisstopo approximation (~1m accuracy).
 
 Usage:
-    python -m v4.import_swissnames --input-dir /path/to/CSV_Dateien_Enea \\
+    python -m locationer.import_swissnames --input-dir /path/to/CSV_Dateien_Enea \\
                                    --output /path/to/ch_country.sqlite
 
     # Merge into existing CH DB (recommended — adds on top of GeoNames CH):
-    python -m v4.import_swissnames --input-dir /path/to/CSV_Dateien_Enea \\
+    python -m locationer.import_swissnames --input-dir /path/to/CSV_Dateien_Enea \\
                                    --output /path/to/ch_country.sqlite --merge
 
     # Stats only:
-    python -m v4.import_swissnames --output /path/to/ch_country.sqlite --check
+    python -m locationer.import_swissnames --output /path/to/ch_country.sqlite --check
 """
 
 import argparse

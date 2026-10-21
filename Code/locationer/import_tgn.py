@@ -7,10 +7,10 @@ Modes:
     --download           Download from Getty and import (needs network, ~600 MB)
 
 Usage examples:
-    python -m v4.import_tgn --from-zip cache/tgn_xml_0126.zip --output cache/tgn.sqlite
-    python -m v4.import_tgn --from-dir cache/tgn         --output cache/tgn.sqlite
-    python -m v4.import_tgn --download                    --output cache/tgn.sqlite
-    python -m v4.import_tgn --check --output cache/tgn.sqlite
+    python -m locationer.import_tgn --from-zip cache/tgn_xml_0126.zip --output cache/tgn.sqlite
+    python -m locationer.import_tgn --from-dir cache/tgn         --output cache/tgn.sqlite
+    python -m locationer.import_tgn --download                    --output cache/tgn.sqlite
+    python -m locationer.import_tgn --check --output cache/tgn.sqlite
 
 ODC-By licence.
 """

@@ -4,7 +4,7 @@ Testmetrik für TestFile.csv.
 TESTLOG.md: CSV-Tabelle, neueste Zeile zuoberst (unter Header).
 Terminal: letzte 3 Zeilen + aktuelle, eine Zeile pro Messung.
 
-Direkt: python -m v3.metrics
+Direkt: python -m locationer.metrics
 """
 
 import math
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pandas as pd
 
-TESTFILE = "v4/TestFile.csv"
-GEO_OUT  = "v4/TestFile_geo.csv"
+TESTFILE = "locationer/TestFile.csv"
+GEO_OUT  = "locationer/TestFile_geo.csv"
 TESTLOG  = "TESTLOG.md"
 
 HEADER = "| Timestamp        | <100m | 100-1km | 1-10km | >10km | kein | FB%  | S5%  | Ext   | n/a→∅ |"
@@ -36,7 +36,7 @@ def _hav(lat1, lon1, lat2, lon2):
 
 
 def run_pipeline():
-    r = subprocess.run([sys.executable, "-m", "v4", TESTFILE], capture_output=True, text=True,
+    r = subprocess.run([sys.executable, "-m", "locationer", TESTFILE], capture_output=True, text=True,
                        input="\n\n")
     for line in r.stdout.splitlines():
         if line.startswith("Google requests:"):

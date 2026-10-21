@@ -1,4 +1,4 @@
-# CLAUDE.md — Locationer V4
+# CLAUDE.md — Locationer
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -36,14 +36,14 @@ NOMINATIM_USER_AGENT=...         # Pflicht für public Nominatim
 
 ```bash
 # Einzelnes Land
-python -m v4.import_country CH --output /path/to/LocationerGeo/ch_country.sqlite
+python -m locationer.import_country CH --output /path/to/LocationerGeo/ch_country.sqlite
 
 # Alle 6 Länder auf einmal
-python -m v4.import_country DE FR IT AT CH NO \
+python -m locationer.import_country DE FR IT AT CH NO \
     --output-dir /Users/dec/Documents/PROGRAMMIEREN/python/Locationer/LocationerGeo/
 
 # Statistik einer bestehenden DB
-python -m v4.import_country CH --check --output /path/to/ch_country.sqlite
+python -m locationer.import_country CH --check --output /path/to/ch_country.sqlite
 ```
 
 Danach in `.env` eintragen (die auskommentierten Zeilen aktivieren):
@@ -66,16 +66,16 @@ COUNTRY_DB_DE=/path/to/de_country.sqlite
 
 ```bash
 # Aus lokalem ZIP (empfohlen — kein Entpacken nötig):
-python -m v4.import_tgn --from-zip cache/tgn_xml_0126.zip --output cache/tgn.sqlite
+python -m locationer.import_tgn --from-zip cache/tgn_xml_0126.zip --output cache/tgn.sqlite
 
 # Aus bereits entpacktem Verzeichnis:
-python -m v4.import_tgn --from-dir cache/tgn --output cache/tgn.sqlite
+python -m locationer.import_tgn --from-dir cache/tgn --output cache/tgn.sqlite
 
 # Neu von Getty herunterladen (~600 MB):
-python -m v4.import_tgn --download --output cache/tgn.sqlite
+python -m locationer.import_tgn --download --output cache/tgn.sqlite
 
 # Statistik anzeigen:
-python -m v4.import_tgn --check --output cache/tgn.sqlite
+python -m locationer.import_tgn --check --output cache/tgn.sqlite
 
 # Später auf Volume verschieben:
 mv cache/tgn.sqlite /Volumes/LCMT_JBTM/LocationerGeo/tgn.sqlite
@@ -85,32 +85,32 @@ mv cache/tgn.sqlite /Volumes/LCMT_JBTM/LocationerGeo/tgn.sqlite
 ## Running
 
 ```bash
-python -m v4 v4/TestFile.csv                          # mit Metrik
-python -m v4 ../ZIN.xlsx --chunk-size 1000 --output ../zin.csv
-python -m v4 v4/DIS.xlsx --limit 50 --mode debug
+python -m locationer locationer/TestFile.csv                          # mit Metrik
+python -m locationer ../ZIN.xlsx --chunk-size 1000 --output ../zin.csv
+python -m locationer locationer/DIS.xlsx --limit 50 --mode debug
 ```
 
 Parameter identisch zu V3: `--mode`, `--limit`, `--chunk-size`, `--output`, `--geo-db`.
 
 ## Architecture
 
-**Entry point:** `python -m v4` → `v4/__main__.py`
+**Entry point:** `python -m locationer` → `locationer/__main__.py`
 
-### Phase 1a — Location-Extraktion (`v4/input_normalizer.py`)
+### Phase 1a — Location-Extraktion (`locationer/input_normalizer.py`)
 - Claude Haiku, Batch à 20 → `title`, `country`, `city`, `location`
 - City-Normalisierung: "Chur GR" → "Chur", "7000 Chur" → "Chur"
 - Cache: `norm_cache`
 
-### Phase 1b — Metadaten-Extraktion (`v4/input_normalizer.py`)
+### Phase 1b — Metadaten-Extraktion (`locationer/input_normalizer.py`)
 - Claude Haiku, Batch à 20 → `periode`, `urheber`, `technik`
 - Cache: `meta_cache`
 
-### Phase 1c — TGN Resolver (`v4/input_normalizer.py`, `v4/tgn_db.py`)
+### Phase 1c — TGN Resolver (`locationer/input_normalizer.py`, `locationer/tgn_db.py`)
 - Lokale SQLite-Suche, kein Netzwerk, kein API-Call
 - Sucht `location` in TGN → setzt `tgn_id` + `tgn_name` auf NormalizedRecord
 - TGN-IDs = stabile Entitäts-IDs → Basis für späteres Knowledge Graph
 
-### Phase 2 — GeoStack (`v4/geostack.py`)
+### Phase 2 — GeoStack (`locationer/geostack.py`)
 
 ```
 0.   Overrides        (manuell, explicit_list/explicit.sqlite)
@@ -131,9 +131,9 @@ Full-Text-Indizes für `CONTAINS()` → sequential scan über Millionen Labels �
 Timeouts. Re-aktivierbar wenn lokale Wikidata-Instanz verfügbar.
 
 ### Neue Module gegenüber V3
-- `v4/tgn_db.py` — Query-Interface für lokale TGN SQLite
-- `v4/import_tgn.py` — Download + Import TGN XML von Getty
-- `v4/nominatim.py` — Nominatim REST API mit Rate-Limiter + Cache
+- `locationer/tgn_db.py` — Query-Interface für lokale TGN SQLite
+- `locationer/import_tgn.py` — Download + Import TGN XML von Getty
+- `locationer/nominatim.py` — Nominatim REST API mit Rate-Limiter + Cache
 
 ### Von V3 übernommen (unverändert)
 `models.py`, `cache.py`, `geo_db.py`, `explicit_store.py`, `overrides.py`,
@@ -189,10 +189,10 @@ sqlite3 cache/locationer.sqlite "DELETE FROM geo_cache; DELETE FROM norm_cache; 
 
 Identisch zu V3:
 ```bash
-python -m v4.overrides add "location|city|country" lat lon "Name" "Notiz"
-python -m v4.overrides norm-add "Avers" --city "Avers" --country "Switzerland"
-python -m v4.overrides list
-python -m v4.overrides norm-list
+python -m locationer.overrides add "location|city|country" lat lon "Name" "Notiz"
+python -m locationer.overrides norm-add "Avers" --city "Avers" --country "Switzerland"
+python -m locationer.overrides list
+python -m locationer.overrides norm-list
 ```
 
 ## Kosten (Erstlauf, keine Cache-Treffer)

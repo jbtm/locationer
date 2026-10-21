@@ -674,7 +674,7 @@ def _spaltenbericht(df) -> None:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Locationer V4 – geocoding pipeline")
+    ap = argparse.ArgumentParser(description="Locationer – geocoding pipeline")
     ap.add_argument("input", help="Input CSV or XLSX file")
     ap.add_argument("--mode", choices=["human", "debug"], default="human")
     ap.add_argument("--output", "-o", help="Output CSV (default: <input>_geo.csv)")
@@ -710,7 +710,7 @@ def main():
     total = len(df)                    # rows to process this run
     has_true_coords = any(_true_coords(r) for r in df.head(5).where(pd.notna(df.head(5)), None).to_dict("records"))
 
-    print(f"Locationer V4  ·  {total} records  ·  mode={args.mode}"
+    print(f"Locationer  ·  {total} records  ·  mode={args.mode}"
           + (f"  ·  chunk={args.chunk_size}" if args.chunk_size else "")
           + (f"  ·  ab Zeile {skip_rows + 1}" if skip_rows else ""))
 
@@ -767,7 +767,7 @@ def main():
         tgn_db = TgnDatabase(_TGN_DB_DEFAULT)
         print(f"TGN DB:  {_TGN_DB_DEFAULT}")
     else:
-        print(f"TGN DB:  not found (run python -m v4.import_tgn to build)")
+        print(f"TGN DB:  not found (run python -m locationer.import_tgn to build)")
 
     # Country DBs (optional — auto-loaded from COUNTRY_DB_XX env vars)
     country_dbs = load_country_dbs(dict(os.environ))
@@ -776,7 +776,7 @@ def main():
     else:
         print("Country DBs: none configured (set COUNTRY_DB_CH etc. in .env)")
 
-    # Pictomap-Referenz (optional — aufbauen mit: python -m v4.pictomap_ref sync)
+    # Pictomap-Referenz (optional — aufbauen mit: python -m locationer.pictomap_ref sync)
     pictomap_ref = None
     if os.getenv("PICTOMAP_REF", "1") != "0" and Path(_PICTOMAP_REF_PATH).exists():
         pictomap_ref = PictomapRef(_PICTOMAP_REF_PATH)
@@ -785,7 +785,7 @@ def main():
         print(f"Pictomap-Referenz: {pictomap_ref.count()} Punkte"
               f"  ·  Abgleich {_last[0] if _last else '—'}")
     else:
-        print("Pictomap-Referenz: aus (python -m v4.pictomap_ref sync)")
+        print("Pictomap-Referenz: aus (python -m locationer.pictomap_ref sync)")
 
     import sqlite3 as _sqlite3
     _ext_conn = _sqlite3.connect(_CACHE_DEFAULT)
@@ -873,16 +873,16 @@ def main():
 
     # Auto-generate QA map
     try:
-        from v4.map import main as map_main
+        from locationer.map import main as map_main
         import sys as _sys
         _argv = _sys.argv
-        _sys.argv = ["v4.map", out_path]
+        _sys.argv = ["locationer.map", out_path]
         map_main()
         _sys.argv = _argv
     except Exception as e:
         print(f"Karte nicht generiert: {e}")
 
-    from v4.metrics import TESTFILE, measure, to_row, update_log, print_table
+    from locationer.metrics import TESTFILE, measure, to_row, update_log, print_table
     if Path(args.input).resolve() == Path(TESTFILE).resolve():
         from datetime import datetime
         out_df = pd.read_csv(out_path)

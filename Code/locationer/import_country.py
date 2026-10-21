@@ -6,9 +6,9 @@ Each country DB supplements the global GeoNames DB with complete name variants
 (incl. regional languages: Romansh/CH, Ladin/IT, Low German/DE, Nynorsk/NO, …).
 
 Usage:
-    python -m v4.import_country CH --output /path/to/ch_country.sqlite
-    python -m v4.import_country DE FR IT AT CH NO --output-dir /path/to/dir/
-    python -m v4.import_country CH --check   # show stats only
+    python -m locationer.import_country CH --output /path/to/ch_country.sqlite
+    python -m locationer.import_country DE FR IT AT CH NO --output-dir /path/to/dir/
+    python -m locationer.import_country CH --check   # show stats only
 
 Downloads:
     https://download.geonames.org/export/dump/{CC}.zip           (places)
@@ -251,7 +251,7 @@ def build(cc: str, output_path: str, check_only: bool = False):
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser(
-        description="Build country-specific GeoNames databases for Locationer v4"
+        description="Build country-specific GeoNames databases for Locationer"
     )
     ap.add_argument("countries", nargs="+",
                     help=f"Country codes: {', '.join(sorted(SUPPORTED))}")

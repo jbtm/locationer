@@ -9,7 +9,7 @@ als alles, was der Geostack aus Namen erraet.
 
 Zwei Teile:
 
-    python -m v4.pictomap_ref sync     Pictomap lesen, lokal ablegen
+    python -m locationer.pictomap_ref sync     Pictomap lesen, lokal ablegen
     PictomapRef.match(record)          Stufe 0.5 im Geostack
 
 Der Abgleich holt jedes Mal die vollstaendige Liste (rund 3000 Bilder, nur

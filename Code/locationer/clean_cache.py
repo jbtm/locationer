@@ -6,7 +6,7 @@ if the cached coordinates deviate more than the city radius, the entry
 is deleted so the next pipeline run re-geocodes it correctly.
 
 Usage:
-    python -m v4.clean_cache [--dry-run] [--all-nominatim]
+    python -m locationer.clean_cache [--dry-run] [--all-nominatim]
 """
 
 import argparse
