@@ -733,9 +733,12 @@ def main():
     if _COLLECTION_BBOX:
         mn_lat, mx_lat, mn_lon, mx_lon = _COLLECTION_BBOX
         print(f"\nCollection-Bbox: {mn_lat},{mx_lat},{mn_lon},{mx_lon}")
-        answer = input("  Passt das für diese Sammlung? [Y/n/neuer Wert] ").strip()
+        answer = input("  Passt das für diese Sammlung? [Y/n/-=ohne Filter/neuer Wert] ").strip()
         if answer.lower() == "n":
             sys.exit(f"Abgebrochen — bitte COLLECTION_BBOX in {Path('.env').resolve()} anpassen.")
+        elif answer == "-":
+            _COLLECTION_BBOX = None
+            print("  → Kein Schwerpunktfilter für diesen Lauf.")
         elif answer and answer.lower() not in ("y", "j", ""):
             new_bbox = _parse_collection_bbox(answer)
             if new_bbox:

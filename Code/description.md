@@ -22,12 +22,27 @@ cd /Users/dec/Documents/PROGRAMMIEREN/python/Locationer/Code
 venv/bin/python -m locationer locationer/TestFile.csv --limit 10
 ```
 
-Fragt einmal nach der Collection-Bbox (Enter = uebernehmen), geokodiert zehn
-Testdatensaetze und haengt eine Zeile an `TESTLOG.md`. Die Collection-Bbox
-ist ein grober geografischer Rahmen der ganzen Sammlung (z. B. Graubünden
-für ZIN, aus `COLLECTION_BBOX` in `.env`) und wirkt im Geostack als
-Plausibilitätsfilter, sobald kein Land ermittelbar ist — ohne gesetzten
-Wert (Enter bei "nicht gesetzt") läuft alles einfach ohne diesen Filter.
+Fragt einmal nach der Collection-Bbox, geokodiert zehn Testdatensaetze und
+haengt eine Zeile an `TESTLOG.md`. Die Collection-Bbox ist ein grober
+geografischer Rahmen der ganzen Sammlung (aus `COLLECTION_BBOX` in `.env`,
+derzeit `43.0,62.0,-5.0,20.0` = Schweiz + Europa) und wirkt im Geostack als
+Plausibilitätsfilter, sobald kein Land ermittelbar ist.
+
+Die Frage hat zwei Formen, je nachdem ob `.env` einen Wert hat:
+
+- **Wert gesetzt** — `Passt das für diese Sammlung? [Y/n/-=ohne Filter/neuer Wert]`
+  - Enter / `y` / `j`: Wert aus `.env` übernehmen
+  - `min_lat,max_lat,min_lon,max_lon`: anderer Rahmen, nur für diesen Lauf
+  - `-`: ohne Filter, nur für diesen Lauf (`.env` bleibt unverändert)
+  - `n`: **bricht den Lauf ab** (danach `.env` anpassen). `n` heisst nicht
+    „ohne Filter weiter" — dafür `-`.
+- **Kein Wert gesetzt** — `COLLECTION_BBOX setzen? [Enter=weiter / …]`
+  - Enter: ohne diesen Filter weiter
+  - `min_lat,max_lat,min_lon,max_lon`: Rahmen nur für diesen Lauf
+
+Sammlungen ausserhalb Europas (z. B. DISCO, Persien/Iran) brauchen einen
+eigenen Rahmen, etwa `25.0,40.0,44.0,64.0` für Iran — sonst verwirft der
+Filter jeden Treffer, bei dem Haiku kein Land erkennt.
 
 ### Voller Lauf
 
