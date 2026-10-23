@@ -204,10 +204,14 @@ python -m locationer <input> [--mode human|debug] [--output PATH] [--limit N]
 |---|---|---|
 | `input` | — | CSV oder XLSX Eingabedatei (Pflicht) |
 | `--mode` | `human` | `human` = kompakte Tabellenausgabe, `debug` = vollständige Entscheidungspfade |
-| `--output` / `-o` | `<input>_geo.csv` | Pfad der Ausgabedatei |
+| `--output` / `-o` | `<input>_loc-<datum>.csv`* | Pfad der Ausgabedatei |
 | `--limit N` | — | Nur die ersten N Zeilen verarbeiten |
 | `--chunk-size N` | `20` | Verarbeitung in Blöcken à N Zeilen; setzt bei Unterbrechung automatisch fort |
 | `--geo-db PATH` | aus `.env` | Pfad zur GeoNames-SQLite (überschreibt `GEO_DB_PATH`) |
+
+\* Ausnahme `locationer/TestFile.csv`: fester Name `locationer/TestFile_geo.csv`,
+kein Datum -- die Rauchprobe baut sich über viele kleine `--limit`-Läufe
+(Chunk-Resume) zu einer vollen Messung auf, siehe "Falle Testdatei" unten.
 
 ### Beispiele
 
@@ -1105,7 +1109,7 @@ Locationer/
 │   ├── metrics.py           Testmetrik
 │   ├── wikidata.py          Wikidata (deaktiviert — Timeouts)
 │   ├── TestFile.csv         Testdaten (mit lat_true/lon_true)
-│   └── TestFile_geo.csv     Letzter Testlauf-Output
+│   └── TestFile_geo.csv     Letzter Testlauf-Output (fester Name, siehe "Falle Testdatei")
 ├── cache/
 │   ├── locationer.sqlite    norm/meta/geo/nominatim cache
 │   ├── tgn.sqlite           Getty TGN (2.99 Mio. Orte)
@@ -1224,8 +1228,11 @@ Gemessen: Testdatei 27/9/3/4/2 (bester Juni-Lauf 25/11/3/4/2).  ZIN-Stichprobe
 lag bei Varese; „Genève" mit Beschreibung „Frankreich").
 
 **Falle Testdatei:** liegt `locationer/TestFile_geo.csv` schon vollständig vor, setzt
-der Lauf fort, rechnet nichts und die Metrik misst das alte Ergebnis.  Vor
-einem Messlauf die Ausgabe löschen.
+der Lauf fort, rechnet nichts und die Metrik misst das alte Ergebnis. Vor
+einem Messlauf die Ausgabe löschen. Dieser Name bleibt bewusst fest (ohne
+Datum, seit 2026-10-21 Ausnahme von der sonst datumsabhängigen Ausgabe-CSV,
+siehe oben) — genau das Aufbauen über viele kleine `--limit`-Läufe ist der
+Zweck der Rauchprobe.
 
 ### Nachtrag 2026-10-17 abends: ZIN-Lauf, Haiku-Frist, bekannte Lücke
 
@@ -1247,3 +1254,32 @@ gelten, der im Kreis um den Regionsmittelpunkt liegt (Piemont 197 km, Wallis
 Oria → Biella durch — rund 20 Zeilen.  Ersatz „nächster Ort der Region
 ≤ 15 km" gemessen (fängt sie, kostet Mönchsjoch und Bietschhorn), aber bei
 dieser Grössenordnung nicht eingebaut.
+
+---
+
+### Nachtrag 2026-10-21: Paket umbenannt, Ausgabe-CSV mit Datum im Namen
+
+**`v4/` → `locationer/`** (Commit 68e7e35). Die v1–v4-Aufteilung stammte aus
+den ersten Anläufen und war nicht mehr nötig — es gibt nur noch die aktuelle
+Version. Alle Aufrufe `python -m v4...` → `python -m locationer...`,
+`CLAUDE_V4.md` → `CLAUDE.md`. Mit echtem Lauf verifiziert.
+
+**Ausgabe-CSV trägt jetzt das Datum im Namen:** `<input>_loc-<datum>.csv`
+statt `<input>_geo.csv` (Dec: "inputname_loc-datum", 2026-10-23; vorher kurz `_loc_`). Grund: nachvollziehbar,
+mit welchem Lauf welche Datei entstand, wenn mehrfach gegen denselben Input
+gerechnet wird — analog zur selben Umstellung bei Framer, 2026-10-21.
+
+**Ausnahme `locationer/TestFile.csv`, gefunden beim Testen:** ein
+datumsabhängiger Name hätte die Rauchprobe kaputtgemacht. Der feste alte
+Name (`TestFile_geo.csv`) hatte sich über viele `--limit 10`-Läufe per
+Chunk-Resume zu einer vollen 45-Zeilen-Messung aufgebaut (27/9/3/4/2 Treffer);
+mit täglich wechselndem Namen hätte jeder Tag bei 0 angefangen und eine
+`--limit 10`-Probe nur noch 10 von 45 Zeilen gemessen (gemessen: 5/1/0/2/37 —
+deutlich schlechter aussehend, aber nur weniger Daten, kein echter
+Qualitätsverlust). Deshalb: `locationer/TestFile.csv` behält weiterhin
+`locationer/TestFile_geo.csv`, alle anderen Inputs bekommen den neuen,
+datierten Namen. Siehe Abschnitt 11 (Testmetrik) für die "Falle Testdatei".
+
+**Spaltenname `titre` wird als Titel erkannt (2026-10-23).** Anlass: DISCO-Export
+(`DISCO_output_section.csv`, 2589 Bilder, französische Spaltennamen). Ohne den
+Alias fehlte der Titel ganz, und gerade dort steht bei DISCO der Ort.

@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 TESTFILE = "locationer/TestFile.csv"
-GEO_OUT  = "locationer/TestFile_geo.csv"
+GEO_OUT  = "locationer/TestFile_geo.csv"  # fester Name ohne Datum, siehe __main__.py: ist_testdatei
 TESTLOG  = "TESTLOG.md"
 
 HEADER = "| Timestamp        | <100m | 100-1km | 1-10km | >10km | kein | FB%  | S5%  | Ext   | n/a→∅ |"

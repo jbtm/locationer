@@ -12,7 +12,7 @@ from .models import NormalizedRecord
 
 # Maps common column name variants → standard field
 COLUMN_MAP: dict[str, list[str]] = {
-    "title":       ["title", "titel", "name", "subject"],
+    "title":       ["title", "titel", "titre", "name", "subject"],
     "description": ["description", "beschreibung", "desc", "text", "caption", "legende"],
     "country":     ["country", "land", "pays", "pais", "country_name"],
     "city":        ["city", "stadt", "ville", "adresse", "address", "ort", "place"],

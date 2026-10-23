@@ -3,6 +3,7 @@ import math
 import os
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -20,6 +21,7 @@ from .geostack import GeoStack
 from .objekttyp import ist_punkt, _klein_norm as _klein_norm_lokal
 from .geo_db import ascii_norm, ascii_norm_de
 from .input_normalizer import InputNormalizer
+from .metrics import TESTFILE
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
 from .pictomap_ref import REF_PATH as _PICTOMAP_REF_PATH, PictomapRef
@@ -677,7 +679,7 @@ def main():
     ap = argparse.ArgumentParser(description="Locationer – geocoding pipeline")
     ap.add_argument("input", help="Input CSV or XLSX file")
     ap.add_argument("--mode", choices=["human", "debug"], default="human")
-    ap.add_argument("--output", "-o", help="Output CSV (default: <input>_geo.csv)")
+    ap.add_argument("--output", "-o", help="Output CSV (default: <input>_loc-<datum>.csv)")
     ap.add_argument("--limit", type=int, help="Process only first N rows")
     ap.add_argument("--chunk-size", type=int, default=20, dest="chunk_size",
                     help="Process in chunks of N rows, auto-resume on restart (default: 20)")
@@ -692,7 +694,17 @@ def main():
     if args.limit:
         df = df.head(args.limit)
 
-    out_path = args.output or str(Path(args.input).with_suffix("")) + "_geo.csv"
+    ist_testdatei = Path(args.input).resolve() == Path(TESTFILE).resolve()
+    if args.output:
+        out_path = args.output
+    elif ist_testdatei:
+        # Fester Name, kein Datum -- die Rauchprobe baut sich ueber viele
+        # kleine --limit-Laeufe (Chunk-Resume) zu einer vollen Messung gegen
+        # alle 45 Testzeilen auf; ein taeglich wechselnder Name wuerde das
+        # jeden Tag auf 0 zuruecksetzen (siehe description.md, Falle Testdatei).
+        out_path = str(Path(args.input).with_suffix("")) + "_geo.csv"
+    else:
+        out_path = f"{Path(args.input).with_suffix('')}_loc-{date.today().isoformat()}.csv"
 
     # With --chunk-size: automatically resume if output already exists.
     # To restart from scratch, use a different --output path.
@@ -882,8 +894,8 @@ def main():
     except Exception as e:
         print(f"Karte nicht generiert: {e}")
 
-    from locationer.metrics import TESTFILE, measure, to_row, update_log, print_table
-    if Path(args.input).resolve() == Path(TESTFILE).resolve():
+    from locationer.metrics import measure, to_row, update_log, print_table
+    if ist_testdatei:
         from datetime import datetime
         out_df = pd.read_csv(out_path)
         m   = measure(out_df, geostack.ext_count)
