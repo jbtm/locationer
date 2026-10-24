@@ -296,6 +296,12 @@ class GeoStack:
 
     def geocode(self, record: NormalizedRecord) -> GeoResult:
         region = self._region(record)
+        if record.country and self.geo_db and not region[0]:
+            # Ein genanntes, aber unbekanntes Land darf die Landesgrenze nicht
+            # aufheben.  Bis 2026-10-24 wurde dann weltweit gesucht:
+            # „Palestine, Samarie" landete in Bosnien.
+            return GeoResult(debug_info=[
+                f"Land {record.country!r} unbekannt — keine Koordinate"])
         result = self._geocode(record, region)
         if result.lat is not None and not self._in_region(result.lat, result.lon, region):
             # Letzte Sicherung.  Sollte nie greifen, weil jede Stufe selbst

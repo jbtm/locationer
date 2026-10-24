@@ -23,6 +23,21 @@ COUNTRY_ALIASES: dict[str, str] = {
     # Others
     "india": "IN", "england": "GB", "uk": "GB", "usa": "US",
     "liechtenstein": "LI",
+    # Englische Namen, die GeoNames anders schreibt (geo_country)
+    "netherlands": "NL", "czech republic": "CZ", "vatican city": "VA",
+    "holy see": "VA", "united states of america": "US",
+    "palestinian territories": "PS", "state of palestine": "PS",
+    "russian federation": "RU", "republic of korea": "KR",
+    # Landesteile und historische Namen, die genau EINEM heutigen Land
+    # entsprechen.  Mehrdeutige (Palestine, Prussia, Ottoman Empire,
+    # Austria-Hungary, Indochine) bewusst nicht: sie bleiben unbekannt, und
+    # dann gibt es keine Koordinate (geostack.geocode).
+    "scotland": "GB", "ecosse": "GB", "schottland": "GB", "scozia": "GB",
+    "wales": "GB", "pays de galles": "GB",
+    "northern ireland": "GB", "irlande du nord": "GB", "nordirland": "GB",
+    "persia": "IR", "perse": "IR", "persien": "IR",
+    "ceylon": "LK", "ceylan": "LK", "siam": "TH",
+    "burma": "MM", "birmanie": "MM",
 }
 
 # Feature classes that represent a specific named location (not admin or city)

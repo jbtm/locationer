@@ -168,6 +168,38 @@ def _normalize_city(city: str) -> str:
     return city.strip()
 
 
+def _parse_array(raw: str) -> "list | None":
+    """JSON-Array aus Haikus Antwort, None wenn keines lesbar ist."""
+    raw = raw.strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        m = re.search(r"\[.*\]", raw, re.DOTALL)
+        try:
+            data = json.loads(m.group()) if m else None
+        except json.JSONDecodeError:
+            data = None
+    if not isinstance(data, list):
+        return None
+    return [d if isinstance(d, dict) else {} for d in data]
+
+
+def _verrutscht(data: "list | None", batch: list) -> bool:
+    """Passt die Antwort nicht Eintrag fuer Eintrag zum Batch?
+
+    Haiku laesst gelegentlich einen Eintrag aus.  Die Antwort wird nur ueber
+    die Position zugeordnet — fehlt Nr. 15 von 20, gehoeren 16–20 zu den
+    falschen Bildern.  Beobachtet am 2026-10-24 (500er-Stichprobe DISCO):
+    das Volta-Denkmal in Como bekam die Koordinate von Honolulu, ohne jede
+    Fehlermeldung.  Fruehere Fassung fuellte nur am Ende auf, was genau
+    diese Verschiebung stehen liess.
+
+    Dann wird der Batch halbiert und neu gefragt, bis die Anzahl stimmt.
+    Ein einzelner Eintrag ohne brauchbare Antwort bleibt leer.
+    """
+    return len(batch) > 1 and (data is None or len(data) != len(batch))
+
+
 def _meta_raw_key(row: dict) -> str:
     """Cache key for metadata extraction: hash of all non-null raw text values."""
     raw = " ".join(
@@ -359,16 +391,12 @@ class InputNormalizer:
             messages=[{"role": "user", "content": "Entries:\n" + "\n".join(lines)}],
         )
 
-        raw = response.content[0].text.strip()
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r"\[.*\]", raw, re.DOTALL)
-            data = json.loads(m.group()) if m else [{}] * len(batch)
+        data = _parse_array(response.content[0].text)
+        if _verrutscht(data, batch):
+            mitte = len(batch) // 2
+            return self._call_meta_ai(batch[:mitte]) + self._call_meta_ai(batch[mitte:])
+        data = data or []
 
-        # Pad to batch length: Haiku occasionally omits entries (e.g. for
-        # rows whose fields are all empty). Silent drop would misalign every
-        # subsequent row in the output CSV.
         return [
             {
                 "periode": (data[k] if k < len(data) else {}).get("periode"),
@@ -397,15 +425,12 @@ class InputNormalizer:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        raw = response.content[0].text.strip()
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r"\[.*\]", raw, re.DOTALL)
-            data = json.loads(m.group()) if m else [{}] * len(batch)
+        data = _parse_array(response.content[0].text)
+        if _verrutscht(data, batch):
+            mitte = len(batch) // 2
+            return self._call_ai(batch[:mitte]) + self._call_ai(batch[mitte:])
+        data = data or []
 
-        # Pad to batch length so a short Haiku response can't misalign
-        # downstream rows (e.g. an empty-input row → Haiku skips → drop).
         records = []
         for k, (_, _, mapped) in enumerate(batch):
             item = data[k] if k < len(data) else {}
