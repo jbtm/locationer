@@ -27,9 +27,14 @@ COUNTRY_ALIASES: dict[str, str] = {
     "netherlands": "NL", "czech republic": "CZ", "vatican city": "VA",
     "holy see": "VA", "united states of america": "US",
     "palestinian territories": "PS", "state of palestine": "PS",
+    # „Palestine" ist heute der Staat (Nablus, Bethlehem, Jericho).  Fuer
+    # historische Angaben (vor 1948) setzt Haiku das heutige Land des Orts
+    # (Jerusalem → Israel); landet trotzdem ein israelischer Ort hier, gibt
+    # es keine Koordinate statt einer falschen.
+    "palestine": "PS",
     "russian federation": "RU", "republic of korea": "KR",
     # Landesteile und historische Namen, die genau EINEM heutigen Land
-    # entsprechen.  Mehrdeutige (Palestine, Prussia, Ottoman Empire,
+    # entsprechen.  Mehrdeutige (Prussia, Ottoman Empire,
     # Austria-Hungary, Indochine) bewusst nicht: sie bleiben unbekannt, und
     # dann gibt es keine Koordinate (geostack.geocode).
     "scotland": "GB", "ecosse": "GB", "schottland": "GB", "scozia": "GB",

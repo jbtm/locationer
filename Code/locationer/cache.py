@@ -28,6 +28,9 @@ class Cache:
                 city               TEXT,
                 location           TEXT,
                 geocoding_queries  TEXT,
+                image_type         TEXT,
+                city_source        TEXT,
+                conflict           TEXT,
                 created_at         TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS geo_cache (
@@ -55,6 +58,9 @@ class Cache:
         # Migrate existing tables that predate new columns
         for stmt in (
             "ALTER TABLE norm_cache ADD COLUMN geocoding_queries TEXT",
+            "ALTER TABLE norm_cache ADD COLUMN image_type TEXT",
+            "ALTER TABLE norm_cache ADD COLUMN city_source TEXT",
+            "ALTER TABLE norm_cache ADD COLUMN conflict TEXT",
             "ALTER TABLE geo_cache  ADD COLUMN ambiguous INTEGER DEFAULT 0",
             "ALTER TABLE geo_cache  ADD COLUMN location_hint TEXT",
             "ALTER TABLE geo_cache  ADD COLUMN city_hint TEXT",
@@ -68,8 +74,8 @@ class Cache:
 
     def get_norm(self, raw_key: str) -> Optional[NormalizedRecord]:
         row = self.conn.execute(
-            "SELECT title, description, country, city, location, region, geocoding_queries "
-            "FROM norm_cache WHERE key=?",
+            "SELECT title, description, country, city, location, region, geocoding_queries, "
+            "image_type, city_source, conflict FROM norm_cache WHERE key=?",
             (_key(raw_key),),
         ).fetchone()
         if not row:
@@ -84,17 +90,20 @@ class Cache:
             title=row[0], description=row[1], country=row[2],
             city=row[3], location=row[4], region=row[5] or "",
             geocoding_queries=gq,
+            image_type=row[7] or "", city_source=row[8] or "", conflict=row[9] or "",
         )
 
     def set_norm(self, raw_key: str, rec: NormalizedRecord):
         self.conn.execute(
             "INSERT OR REPLACE INTO norm_cache "
-            "(key,title,description,country,region,city,location,geocoding_queries) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(key,title,description,country,region,city,location,geocoding_queries,"
+            "image_type,city_source,conflict) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 _key(raw_key), rec.title, rec.description, rec.country,
                 rec.region, rec.city, rec.location,
                 json.dumps(rec.geocoding_queries) if rec.geocoding_queries else None,
+                rec.image_type, rec.city_source, rec.conflict,
             ),
         )
         self.conn.commit()

@@ -205,6 +205,14 @@ def _is_generic_title(title: str, city: str) -> bool:
     return bool(words) and words.issubset(_GENERIC_WORDS)
 
 
+def _norm_vergleich(s: str) -> str:
+    """Kleinbuchstaben, ohne Akzente und Satzzeichen — fuer „steht X in Y"."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", (s or "").lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return " ".join(re.findall(r"\w+", s))
+
+
 def _dist_km(lat1, lon1, lat2, lon2) -> float:
     R = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -302,7 +310,10 @@ class GeoStack:
             # „Palestine, Samarie" landete in Bosnien.
             return GeoResult(debug_info=[
                 f"Land {record.country!r} unbekannt — keine Koordinate"])
+        self._pruefe_land_als_stadt(record, region)
+        self._pruefe_stadt_aus_wissen(record, region)
         result = self._geocode(record, region)
+        result = self._naturobjekt_beim_ort(record, region, result)
         if result.lat is not None and not self._in_region(result.lat, result.lon, region):
             # Letzte Sicherung.  Sollte nie greifen, weil jede Stufe selbst
             # prueft — greift sie doch, fehlt irgendwo eine Pruefung.
@@ -311,6 +322,94 @@ class GeoStack:
                 f"Land {region[0]} / Region {region[1] or '—'} — keine Koordinate"])
         return result
 
+    def _naturobjekt_beim_ort(self, record: NormalizedRecord, region,
+                              result: GeoResult) -> GeoResult:
+        """Ein Berg ausserhalb des genannten Orts ist nicht der Aufnahmeort.
+
+        „Zermatt, Landschaft … Blick auf das Matterhorn": Haiku 5.5 nimmt den
+        Berg aus der Beschreibung als Objekt, der Treffer liegt 8.6 km vom
+        Ort.  Die Kamera stand aber im oder beim Ort (ZIN-Kontrolle
+        2026-10-24, rund 20 von 500 Bildern).  Mit einer Prompt-Regel liess
+        sich das nicht zuverlaessig abstellen.
+
+        Darum: Steht der Ort in der Eingabe (nicht aus Wissen) und ist das
+        Objekt ein Naturobjekt, gilt es nur innerhalb des Ortsradius
+        (_city_radius_km).  Sonst der Ortsmittelpunkt wie vor Haiku 5.5.
+
+        Der Titel schuetzt nur, er verlangt nichts: Steht das Objekt im
+        Originaltitel („Saas Fee, Feegletscher"), ist es das Motiv und bleibt.
+        Ohne Titel greift die Sicherung gar nicht — was ein Titel ist, ist je
+        Sammlung verschieden (bei DISCO steht alles im Titel).
+        """
+        if not record.input_title or _norm_vergleich(record.location) in _norm_vergleich(record.input_title):
+            return result
+        if (result.lat is None or result.fallback or not record.city
+                or record.city_source != "text" or not record.location
+                or result.source not in ("geo_db", "tgn", "country_db")
+                or not self.geo_db):
+            return result
+        cc, a1 = region[0], region[1]
+        natur = _is_geo_feature(record.location)
+        if not natur:
+            row = self.geo_db.find_precise(record.location, cc, admin1_hint=a1)
+            natur = row is not None and row["feature_class"] in ("T", "H")
+        if not natur:
+            return result
+        ort, _ = self.geo_db.find_city(record.city, cc, a1)
+        if ort is None:
+            return result
+        dist = _dist_km(result.lat, result.lon, ort["lat"], ort["lon"])
+        radius = _city_radius_km(ort)
+        if dist <= radius:
+            return result
+        return GeoResult(
+            lat=ort["lat"], lon=ort["lon"], quality_score=3, fallback=True,
+            source="geo_db", match_name=ort["name"],
+            debug_info=result.debug_info + [
+                f"Naturobjekt {result.match_name!r} {dist:.1f} km vom Ort "
+                f"(> {radius:.0f} km) — Ortsmittelpunkt {ort['name']!r}"])
+
+    def _pruefe_land_als_stadt(self, record: NormalizedRecord, region) -> None:
+        """Steht das Land als Stadt da, gilt es nur bei einem echten Ort.
+
+        „Bodensee, Dampfer Säntis" → city="Schweiz": GeoNames kennt einen
+        Weiler dieses Namens, die Koordinate lag 118 km daneben.  Monaco,
+        Luxembourg, Singapore usw. sind aber Land UND Stadt — darum zaehlt
+        ein Ort ab 1000 Einwohnern im selben Land.
+        """
+        cc = region[0]
+        if not record.city or not cc or not self.geo_db:
+            return
+        if self.geo_db.country_to_code(record.city) != cc:
+            return
+        row, _ = self.geo_db.find_city(record.city, cc, None)
+        if row is not None and row["country_code"] == cc and (row["population"] or 0) >= 1000:
+            return
+        record.city, record.city_source = "", ""
+
+    def _pruefe_stadt_aus_wissen(self, record: NormalizedRecord, region) -> None:
+        """Eine Stadt, die Haiku nur gewusst hat, muss im Anker liegen.
+
+        Wissen fuellt Luecken, widerspricht aber nie Land oder Region aus der
+        Eingabe (Rangordnung im Phase-1a-Prompt).  Haiku prueft das selbst;
+        hier die Rueckversicherung, falls es den Widerspruch uebersieht —
+        etwa „Löwendenkmal" mit Region Uri → Luzern.  Dann wird die Stadt
+        gestrichen und der Widerspruch vermerkt; gesucht wird ohne Stadt
+        im Anker.  Kennt GeoNames die Stadt nicht, gilt dasselbe.
+        """
+        if record.city_source != "knowledge" or not record.city or not self.geo_db:
+            return
+        cc, a1 = region[0], region[1]
+        row, _ = self.geo_db.find_city(record.city, cc, a1)
+        if row is not None and (not cc or row["country_code"] == cc) \
+                and (not a1 or row["admin1"] == a1):
+            return
+        anker = record.region or record.country or "GeoNames"
+        notiz = (f"Stadt {record.city!r} (aus Wissen) nicht in {anker} gefunden"
+                 " — gestrichen")
+        record.conflict = "; ".join(filter(None, [record.conflict, notiz]))
+        record.city, record.city_source = "", ""
+
     def _geocode(self, record: NormalizedRecord, region) -> GeoResult:
         # Strip canton/region prefixes that may survive in old norm-cache hits
         # (e.g. "Kanton Luzern" → "Luzern"). _normalize_city handles new records;
@@ -318,7 +417,11 @@ class GeoStack:
         record.city = re.sub(r"^(?:Kanton|Kt\.?|Canton)\s+", "", record.city or "",
                               flags=re.IGNORECASE).strip()
         hint = record.location or record.title
-        cache_key = f"{hint}|{record.city}|{record.country}"
+        # Region im Schluessel, seit sie eine harte Grenze ist: sonst erbt
+        # „Kirche|Münster|Schweiz" in VS das Ergebnis aus GR (oder dessen
+        # Fehlschlag).  Aufgeloester admin1-Code, damit „Kanton Graubünden"
+        # und „Graubünden" denselben Eintrag treffen.
+        cache_key = f"{hint}|{record.city}|{record.country}|{region[1] or ''}"
 
         # ── Step 0: manual overrides ─────────────────────────────────────────
         if self.overrides:
@@ -745,6 +848,14 @@ class GeoStack:
                         f"(region dist {dist_a1:.0f} km > {a1_radius:.0f} km)"
                     )
                     ext_result = None
+            # Dieselbe Pruefung wie in den anderen Stufen (Nachbarorte).  Fehlte
+            # sie, verwarf erst die Schlusspruefung in geocode() den Treffer —
+            # und dann ohne Stadt-Rueckfall: „Palais d'Hérode, Jerusalem" →
+            # Wikidata Herodium (Westjordanland) → gar keine Koordinate.
+            if ext_result and not self._in_region(ext_result["lat"], ext_result["lon"], region):
+                dbg.append(f"{quelle} precise {ext_result['name']!r} rejected "
+                           f"(ausserhalb Land {country_code} / Region {admin1_hint or '—'})")
+                ext_result = None
             if ext_result:
                 result = GeoResult(
                     lat=ext_result["lat"], lon=ext_result["lon"], quality_score=4,

@@ -32,31 +32,75 @@ Only extract what is EXPLICITLY stated in the text. Never guess or infer. Return
 Return ONLY the JSON array, no prose.\
 """
 
+# Phase 1a.  Fassung vom 2026-10-24, gemessen auf zwei Zufallsstichproben à
+# 500 Bilder aus DISCO (TestFile als Kontrolle).  Grundsaetze:
+#   - Rangordnung Eingabe > Ableitung aus Hinweisen > Wissen; Wissen fuellt
+#     nur Luecken und widerspricht nie (sonst `conflict`).
+#   - Stadt aus Wissen nur bei einem Ort, den es in genau EINER Stadt gibt;
+#     geprueft wird sie zusaetzlich im Geostack (geocode).
+#   - Heutige Namen fuer Land und Stadt, Objektnamen im Original.
+# Beispiele bewusst ausserhalb der Mess-Stichproben (Kein Overfitting).
 SYSTEM_PROMPT = """\
 You extract structured location metadata for a historical photo archive.
 
 For each numbered entry, return one JSON object in an array:
 {
   "title":         "<max 60 chars, human-readable, same language as the input>",
-  "country":       "<English country name, or empty string>",
+  "image_type":    "<one of: portrait | group | event | view | landscape | other>",
+  "country":       "<English country name where the photo was TAKEN, or empty string>",
   "region":        "<canton, state, province or county — e.g. 'Graubünden', 'Lombardia', 'Bavaria' — infer from geographic context clues even when not explicitly named: a well-known mountain range, valley, lake or peak can strongly imply a region (e.g. 'Berninagruppe', 'Corvatsch', 'Piz Roseg', 'Engadin' → 'Graubünden'; 'Vierwaldstättersee', 'Rigi' → 'Luzern'; 'Jungfrau', 'Eiger' → 'Bern'; 'Mont Blanc' → 'Aosta Valley') — empty string only if genuinely unclear>",
-  "city":          "<city or town name — only if the city name appears explicitly in the input text; never infer from region names, mountain ranges, or geographic context alone; include disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen'; empty string if not explicitly stated>",
-  "location":       "<most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht' – empty string if only a city, portrait, or generic scene>",
-  "location_type":  "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'Schulhaus', 'église', 'stazione' — null otherwise>",
-  "geocoding_queries": ["<1–3 Nominatim search strings — translate generic building/place type to the official local language, then append the city: 'Kathedrale Genève' → ['cathédrale Genève', 'Kathedrale Genf']; 'Bahnhof Chur' → ['Bahnhof Chur', 'Gare de Coire']; 'Kirche Trafoi' → ['chiesa Trafoi', 'Kirche Trafoi']; NEVER invent a specific building name not present in the input (no 'Saint-Pierre', no 'Unsere Liebe Frau' unless the input says so); if the input already contains a specific named place, include it as-is; empty array [] when location is empty or is a purely generic word with no named referent>"]
+  "city":          "<city or town where the photo was taken, see rules — empty string if unknown>",
+  "city_source":   "<'text' if the city name appears in the input, 'knowledge' if you added it from the named place (see rules), '' if city is empty>",
+  "location":      "<the PROPER NAME of the most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht', 'Sagrada Família', 'Hallgrímskirkja' – empty string if only a city, a person, or a generic scene>",
+  "location_type": "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'église', 'stazione' — null otherwise>",
+  "geocoding_queries": ["<1–3 Nominatim search strings for a NAMED location, in the official local language, with the city appended: 'Kathedrale Genève' → ['cathédrale Genève', 'Kathedrale Genf']; NEVER invent a building name not present in the input; when location is empty but location_type and city are set, give the generic word with the correctly spelled city ('stazione', 'Belinzona' → ['stazione Bellinzona']); empty array [] otherwise>"],
+  "conflict":      "<one short English sentence if what you know about a named place contradicts the country, region or city stated in the input — e.g. 'Hallgrímskirkja is in Reykjavík, input says Akureyri' — empty string otherwise>"
 }
 
+Ranking of sources — higher always wins, lower never overrides higher:
+1. Country, region and city stated in the input (fields or text).
+2. Region inferred from geographic clues in the input (mountain, valley, lake).
+3. Your own knowledge about a named place.
+Knowledge may only FILL an empty field, and only if it is consistent with 1 and 2. It never replaces or corrects them. If it contradicts them, keep the input's values, leave the knowledge-based field empty, and describe the contradiction in `conflict`.
+
+Rules for `image_type`:
+- portrait: one or more people are the subject (studio, posed, carte de visite), even if a place is named.
+- group: a posed group of people (delegations, soldiers, students, family) — the people are the subject.
+- event: something happening at a place (ceremony, procession, celebration, market scene, execution).
+- view: a building, monument, street, square, interior or city view is the subject.
+- landscape: nature, mountains, rivers, coast, countryside.
+- other: aircraft, vehicles, documents, reproductions of artworks, anything else.
+
+Rules for `city`:
+- If a city or town is named in the input, use it ('text'). It stays even if several towns share the name, and also for portraits and events: 'Italie, Procida' → 'Procida'; 'Nach dem Erdbeben von Skopje' → 'Skopje'.
+- Write the city in its CURRENT standard name, not a historical or foreign-language form: 'Pressburg' → 'Bratislava', 'Varsovie' → 'Warszawa', 'Mailand' → 'Milano'. This is still 'text'.
+- Otherwise, if `location` names a specific, well-known place that exists in exactly ONE town, give that town ('knowledge'): 'Hallgrímskirkja' → 'Reykjavík', 'Taj Mahal' → 'Agra', 'Sagrada Família' → 'Barcelona'.
+- A knowledge city must lie inside the stated country and region. If it does not, city = '' and fill `conflict`.
+- Never infer a city from a person, a photographer, an event without a named place, a region, or the general theme of the collection. If in doubt, leave it empty.
+- Include a disambiguation suffix if present, e.g. 'Bingen am Rhein' not 'Bingen'.
+
+Rules for `country`:
+- The country where the photo was taken, from the input or implied by a named place ('Acropolis' → 'Greece').
+- Always use the CURRENT English country name, also for historical names in the input: 'Persia' → 'Iran', 'Ceylon' → 'Sri Lanka', 'Bohemia' → 'Czechia', 'Siam' → 'Thailand'. Translating a name is not a contradiction.
+- If the input's country is a historical state or area whose borders differ from today's (e.g. Ottoman Empire, Prussia, Austria-Hungary, Indochine, Palestine before 1948, Syria before 1920), give the CURRENT country in which the named place lies: 'Prusse, Königsberg' → 'Russia'; 'Autriche-Hongrie, Cracovie' → 'Poland'. This is not a contradiction. Without a named place, leave country empty.
+- If the input names a country that contradicts a named place you are sure about, keep the input's country — do not correct it — and fill `conflict`.
+- For portraits and groups without any place in the input, give the country only if the input states it. Do not guess from the collection's theme.
+
+Rules for `region`:
+- If the input states a region, keep it exactly, even if a named place suggests another one.
+- Infer a region from geographic clues only when the input states none. This applies worldwide, not only to mountains: a river, island, coast, park or landmark that lies in one region implies it ('Loreley' → 'Rhineland-Palatinate', 'Grand Canyon' → 'Arizona'). Never infer it from your knowledge of where a named building is when that contradicts the input.
+
 Rules for `location`:
-- Never translate. Use the original language.
+- Must be a proper name. Descriptive phrases are NOT names: 'Old Town School for Girls', 'a city gate', 'the royal palace', 'view of the harbour' → location = '' (use location_type for the generic word).
+- Never translate. Use the original spelling of the input.
 - Split compound nouns when the prefix is a proper noun: 'Montalinschulhaus' → 'Montalin Schulhaus', 'Quaderschulhaus' → 'Quader Schulhaus'.
-- If the title itself is a specific named place (especially a compound noun with a proper-noun prefix like 'Montalin-', 'Quader-', 'Kirch-', 'Schloss-'), use it as the location.
-- Generic words alone (Kirche, Bahnhof, Schulhaus, Hotel) without a proper-noun modifier → empty string.
+- If the title itself is a specific named place, use it as the location.
+- Generic words alone (Kirche, Bahnhof, Schulhaus, Hotel, church, market) → empty string.
 
 Rules for `location_type`:
 - Only set when `location` is empty and a generic building type is clearly present.
 - Use the word exactly as it appears in the input: 'Bahnhof' not 'railway station', 'Kirche' not 'church'.
 - Examples: 'Göschenen, Bahnhof, Gotthardbahn' → location='', location_type='Bahnhof'
-- If `location` is non-empty, set location_type to null.
 
 HTML entities are already decoded. Return ONLY the JSON array, no prose.\
 """
@@ -168,6 +212,23 @@ def _normalize_city(city: str) -> str:
     return city.strip()
 
 
+_IST_URL = re.compile(r"https?://", re.IGNORECASE)
+
+# Haiku 5.5 mit wenig Denkaufwand, fuer Phase 1a und 1b.  Gemessen 2026-10-24
+# gegen Haiku 4.5: gleich viele Koordinaten, bei Abweichungen oefter richtig,
+# rund ein Viertel der Kosten.  „medium" war nicht besser, aber langsamer.
+# Haiku 5.5 denkt vor der Antwort; darum der grosse max_tokens-Rahmen (es
+# wird nur verrechnet, was gebraucht wird) und der Text aus dem Textblock,
+# nicht aus content[0] — das kann ein Denkblock sein.
+MODEL = "claude-haiku-5-5"
+_MODEL_KW = {"output_config": {"effort": "low"}}
+_MAX_TOKENS = 16000
+
+
+def _antworttext(response) -> str:
+    return "".join(b.text for b in response.content if b.type == "text")
+
+
 def _parse_array(raw: str) -> "list | None":
     """JSON-Array aus Haikus Antwort, None wenn keines lesbar ist."""
     raw = raw.strip()
@@ -201,11 +262,16 @@ def _verrutscht(data: "list | None", batch: list) -> bool:
 
 
 def _meta_raw_key(row: dict) -> str:
-    """Cache key for metadata extraction: hash of all non-null raw text values."""
+    """Cache key for metadata extraction: hash of all non-null raw text values.
+
+    Ohne Links: Bild-URLs (recto/verso) machten jede Zeile einmalig — im
+    DISCO-Bestand 705224 Anfragen statt 578245.  Haiku sieht sie trotzdem
+    (_call_meta_ai), sie aendern Periode/Urheber/Technik aber nicht.
+    """
     raw = " ".join(
         html.unescape(str(v)).strip()
         for v in row.values()
-        if v is not None and str(v).strip()
+        if v is not None and str(v).strip() and not _IST_URL.match(str(v).strip())
     )
     return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
@@ -277,14 +343,19 @@ class InputNormalizer:
         total = len(rows)
         results: list[tuple[int, NormalizedRecord]] = []
         pending: list[tuple[int, str, dict[str, str]]] = []
+        doppelt: list[tuple[int, str]] = []   # gleiche Zeile schon in pending
 
+        offen: set[str] = set()
         for i, row in enumerate(rows):
             mapped = {k: _clean(v) for k, v in _map_columns(row, self.extra_desc_cols).items()}
             rk = _raw_key(mapped)
             cached = self.cache.get_norm(rk)
             if cached:
                 results.append((i, cached))
+            elif rk in offen:
+                doppelt.append((i, rk))
             else:
+                offen.add(rk)
                 pending.append((i, rk, mapped))
 
         if not self.debug and pending:
@@ -300,11 +371,20 @@ class InputNormalizer:
                 done = total - len(pending) + start + len(batch)
                 print(f"\r  Phase 1: {done}/{total}", end="", flush=True)
 
+        # Doppelte Zeilen aus dem Cache: je ein eigenes Objekt, weil spaeter
+        # pro Zeile weiter veraendert wird (Overrides, Stadt ergaenzen).
+        results += [(i, self.cache.get_norm(rk)) for i, rk in doppelt]
+
         if not self.debug:
             print(f"\r  Phase 1: {total}/{total} done          ")
 
         results.sort(key=lambda x: x[0])
         normalized = [r for _, r in results]
+
+        # Originaltitel je Zeile (nicht im Cache: gleicher Schluessel, aber
+        # jede Zeile bekommt ihn aus der eigenen Eingabe).
+        for rec, row in zip(normalized, rows):
+            rec.input_title = _clean(_map_columns(row, self.extra_desc_cols)["title"])
 
         # Post-process: extract location from enriched title for stale cache entries
         # where Haiku left location='' but wrote the place name into the title.
@@ -344,13 +424,18 @@ class InputNormalizer:
         """Extract periode/urheber/technik for each row. Per-row cached by input-text hash."""
         results: list[tuple[int, dict]] = []
         pending: list[tuple[int, str, dict]] = []
+        doppelt: list[tuple[int, str]] = []
 
+        offen: set[str] = set()
         for i, row in enumerate(rows):
             rk = _meta_raw_key(row)
             cached = self.cache.get_meta(rk)
             if cached is not None:
                 results.append((i, cached))
+            elif rk in offen:
+                doppelt.append((i, rk))
             else:
+                offen.add(rk)
                 pending.append((i, rk, row))
 
         total_meta = len(rows)
@@ -366,6 +451,8 @@ class InputNormalizer:
             if not self.debug:
                 done = total_meta - len(pending) + start + len(batch)
                 print(f"\r  Phase 1b: {done}/{total_meta}", end="", flush=True)
+
+        results += [(i, self.cache.get_meta(rk)) for i, rk in doppelt]
 
         if not self.debug:
             print(f"\r  Phase 1b: {total_meta}/{total_meta} done          ")
@@ -385,13 +472,14 @@ class InputNormalizer:
 
         self.haiku_count += 1
         response = self._create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=max(len(batch) * 60, 256),
+            model=MODEL,
+            max_tokens=_MAX_TOKENS,
             system=META_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": "Entries:\n" + "\n".join(lines)}],
+            **_MODEL_KW,
         )
 
-        data = _parse_array(response.content[0].text)
+        data = _parse_array(_antworttext(response))
         if _verrutscht(data, batch):
             mitte = len(batch) // 2
             return self._call_meta_ai(batch[:mitte]) + self._call_meta_ai(batch[mitte:])
@@ -419,13 +507,14 @@ class InputNormalizer:
 
         self.haiku_count += 1
         response = self._create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=max(len(batch) * 250, 512),
+            model=MODEL,
+            max_tokens=_MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
+            **_MODEL_KW,
         )
 
-        data = _parse_array(response.content[0].text)
+        data = _parse_array(_antworttext(response))
         if _verrutscht(data, batch):
             mitte = len(batch) // 2
             return self._call_ai(batch[:mitte]) + self._call_ai(batch[mitte:])
@@ -438,12 +527,17 @@ class InputNormalizer:
             input_city = str(mapped.get("city", "")).strip()
             # If AI city has no substring relation to the input value, the AI likely
             # corrupted it (e.g. "Luzern" → "Lzern"). Fall back to the original.
+            city_source = str(item.get("city_source") or "").strip()
             if (input_city and ai_city
                     and input_city.lower() not in ai_city.lower()
                     and ai_city.lower() not in input_city.lower()):
                 city = _normalize_city(input_city)
             else:
                 city = _normalize_city(ai_city if ai_city else input_city)
+            if input_city:
+                city_source = "text"     # Eingabespalte, nie Wissen
+            if not city:
+                city_source = ""
             location = str(item.get("location", ""))
             # If Haiku found no specific location but identified a generic building
             # type, construct a search string: "Railway Station Göschenen"
@@ -481,6 +575,9 @@ class InputNormalizer:
                     city=city,
                     location=location,
                     geocoding_queries=geocoding_queries,
+                    image_type=str(item.get("image_type") or "").strip(),
+                    city_source=city_source,
+                    conflict=str(item.get("conflict") or "").strip(),
                 )
             )
         return records

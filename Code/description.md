@@ -267,7 +267,7 @@ Optionale Spalten `lat_true` / `lon_true` (oder `Breitengrad` / `Längengrad`): 
        Längengrad, Bemerkungen          ← Vorlage, deren Reihenfolge und Schreibweise
    15  Gitter
   16+  übrige Locationer-Spalten: Technik, Coord-Quality-Score, Fallback,
-       Ambiguous, Ext-Calls[, Deviation_km], Map
+       Ambiguous, Bildtyp, Widerspruch, Ext-Calls[, Deviation_km], Map
        danach die durchgereichten Eingabespalten
 ```
 
@@ -389,17 +389,27 @@ Eingabe (CSV/XLSX)
 
 ### Phase 1a — Normalisierung
 
+**Modell: Haiku 5.5, Denkaufwand `low`** (Phase 1a und 1b, seit 2026-10-24). Gemessen gegen Haiku 4.5 auf zwei Zufallsstichproben à 500 Bilder aus DISCO, mit TestFile und ZIN als Kontrolle: gleich viele Koordinaten, bei Abweichungen öfter richtig, rund ein Viertel der Kosten (DISCO 705224 Bilder: ~140 statt ~560 USD). Haiku 5.5 denkt vor der Antwort; gelesen wird darum der Textblock, nicht `content[0]`.
+
 Claude Haiku extrahiert aus Titel und Beschreibung:
 
 | Feld | Beschreibung |
 |---|---|
 | `title` | Bereinigter Titel (max. 60 Zeichen, Originalsprache) |
-| `country` | Landesname auf Englisch |
-| `region` | Kanton, Bundesland, Provinz — explizit genannt oder aus geographischem Kontext inferiert (z.B. `"Berninagruppe"` → `"Graubünden"`, `"Jungfrau"` → `"Bern"`) |
-| `city` | Stadt oder Ortschaft inkl. Disambiguierungssuffix (z.B. `"Bingen am Rhein"` statt `"Bingen"`) — **nur wenn der Stadtname explizit im Input steht**; nie aus Region oder Geografie inferiert |
-| `location` | Spezifischer benannter Ort in Originalsprache (z.B. `"Schloss Vaduz"`, `"Montalin Schulhaus"`) — leer wenn nur Stadt, Portrait oder generische Szene |
+| `image_type` | `portrait`, `group`, `event`, `view`, `landscape` oder `other` → Output-Spalte `Bildtyp` |
+| `country` | Heutiger englischer Landesname des Aufnahmeorts. Historische Namen werden übersetzt (`Persia` → `Iran`); bei historischen Gebieten mit anderen Grenzen gilt das heutige Land des genannten Orts |
+| `region` | Kanton, Bundesland, Provinz — aus der Eingabe, sonst aus geographischen Hinweisen weltweit inferiert (z.B. `"Berninagruppe"` → `"Graubünden"`) |
+| `city` | Stadt mit heutigem Standardnamen inkl. Disambiguierungssuffix. Aus dem Text (`city_source="text"`), sonst aus Wissen, **nur** wenn das genannte Objekt in genau einer Stadt steht (`"knowledge"`). Nie aus Person, Fotograf oder Sammlungsthema |
+| `location` | Eigenname des Objekts in Originalsprache (z.B. `"Schloss Vaduz"`), auch Täler, Seen, Berge, Pässe — leer bei Beschreibungen wie „une porte de la ville" |
 | `location_type` | Generischer Gebäudetyp im Originalwort wenn `location` leer (z.B. `"Bahnhof"`, `"Kirche"`) — kombiniert mit city zu Nominatim-Query |
-| `geocoding_queries` | 1–3 fertige Nominatim-Suchstrings in Lokalsprache (z.B. `"Kathedrale Genève"` → `["cathédrale Genève", "Kathedrale Genf"]`) — leer wenn `location` leer |
+| `geocoding_queries` | 1–3 fertige Nominatim-Suchstrings in Lokalsprache; bei `location_type` + Stadt der Typ mit korrekt geschriebener Stadt |
+| `conflict` | Widerspruch zwischen Eingabe und Wissen (z.B. „Löwendenkmal steht in Luzern, Eingabe sagt Uri") → Output-Spalte `Widerspruch` |
+
+**Rangordnung:** Eingabe (Spalten, Text) > Ableitung aus Hinweisen > Wissen. Wissen füllt nur Lücken und korrigiert nie; ein Widerspruch wird vermerkt, nicht aufgelöst. **Koordinaten kommen nie von der KI**, immer aus den Datenbanken des Geostacks. Eine Stadt aus Wissen prüft der Geostack zusätzlich gegen GeoNames: liegt sie nicht im Anker-Land und in der Anker-Region, wird sie gestrichen und als Widerspruch vermerkt.
+
+**Batch-Zuordnung:** Antwortet Haiku mit falscher Anzahl Einträgen, wird der Batch halbiert und neu gefragt (vorher rutschten die Einträge nach einer Lücke um eine Zeile).
+
+**Doppelte Zeilen** innerhalb eines Laufs werden nur einmal gefragt. Der Phase-1b-Cache ignoriert Links (Bild-URLs), der Geo-Cache berücksichtigt die Region.
 
 **geocoding_queries** sind der Schlüssel für Sprachflexibilität: Haiku übersetzt den generischen Gebäudetyp in die Lokalsprache und hängt die City an. Damit findet Nominatim POIs auch wenn der Originaltitel auf Deutsch steht aber der OSM-Eintrag auf Französisch/Italienisch/Romanisch ist.
 
@@ -1298,3 +1308,56 @@ datierten Namen. Siehe Abschnitt 11 (Testmetrik) für die "Falle Testdatei".
 **Spaltenname `titre` wird als Titel erkannt (2026-10-23).** Anlass: DISCO-Export
 (`DISCO_output_section.csv`, 2589 Bilder, französische Spaltennamen). Ohne den
 Alias fehlte der Titel ganz, und gerade dort steht bei DISCO der Ort.
+
+---
+
+### Nachtrag 2026-10-24: Haiku 5.5, Bugfixes, Geostack-Sicherungen
+
+Gemessen auf zwei Zufallsstichproben à 500 aus DISCO (705224 Bilder; der
+Ausschnitt `DISCO_output_section.csv` war mit 74 % Porträts nicht
+repräsentativ), zwei ZIN-Teilmengen à 500 gegen `zin_2026-10-17.csv` und
+dem TestFile. Ergebnis gegenüber dem bisherigen Stand: Abdeckung gleich oder
+besser (DISCO Nicht-Porträts 303 statt 298 von 376; ZIN 938 statt 939 von
+1000), weniger Treffer über 10 km (ZIN 114 statt 121), Haiku-Kosten rund
+ein Viertel. Einzelheiten zu Phase 1a/1b siehe Abschnitt Phase 1a.
+
+**Bugfixes**
+- *Verrutschte Zeilen:* liess Haiku einen Eintrag aus, rutschten alle
+  folgenden des Batches um eine Zeile (Como bekam die Koordinate von
+  Honolulu). Jetzt: falsche Anzahl → Batch halbieren und neu fragen.
+- *Unbekanntes Land:* ein genanntes, aber nicht auflösbares Land hob die
+  Landesgrenze auf („Palestine, Samarie" → Bosnien). Jetzt: keine Koordinate.
+  Dazu Aliase für Landesteile, eindeutige historische Namen und englische
+  Schreibweisen, die GeoNames anders führt; „Palestine" = heutiger Staat (PS).
+- *Externe Stufe ohne Regionsprüfung:* ein Wikidata-/Nominatim-Treffer
+  ausserhalb von Land/Region wurde erst in der Schlussprüfung verworfen — ohne
+  Rückfall auf die Stadt („Palais d'Hérode, Jerusalem" → Herodium → nichts).
+  Jetzt prüft die Stufe selbst, die Stadt fängt auf.
+- *Caches:* Phase-1b-Schlüssel ohne Links (vorher war jede Zeile einmalig),
+  Geo-Schlüssel mit Region, doppelte Zeilen eines Laufs nur einmal gefragt.
+
+**Geostack-Sicherungen (alle in `geocode()`)**
+- *Stadt aus Wissen* (`city_source="knowledge"`) muss in GeoNames im
+  Anker-Land und der Anker-Region liegen, sonst gestrichen und als
+  Widerspruch vermerkt.
+- *Land als Stadt* („Bodensee, Dampfer" → city="Schweiz") zählt nur, wenn es
+  im Land einen Ort dieses Namens mit ≥ 1000 Einwohnern gibt (Monaco,
+  Luxembourg, Singapore bleiben).
+- *Naturobjekt beim Ort:* Haiku 5.5 nimmt bei „Ort, Landschaft" öfter einen
+  Berg aus der Beschreibung („Zermatt … Blick auf das Matterhorn", 8.6 km).
+  Steht der Ort in der Eingabe und ist das Objekt ein Naturobjekt, gilt es nur
+  im Ortsradius — sonst der Ortsmittelpunkt wie früher. Der Originaltitel
+  *schützt* nur: steht das Objekt dort („Saas Fee, Feegletscher"), bleibt es;
+  ohne Titelspalte greift die Sicherung nicht (was ein Titel ist, ist je
+  Sammlung verschieden — Dec, 2026-10-24). Eine Prompt-Regel dafür wurde
+  versucht und verworfen: Haiku befolgte sie nur teilweise.
+
+**Bewusst nicht gemacht:** weitere Prompt-Regeln (Täler als Objekt,
+Kamerastandort). Beide brachten neue Nebenwirkungen; Grundsatz Dec: nicht zu
+weit vom bewährten Verhalten weg. Bekannt offen: „Val Medel" im TestFile
+(Haiku 5.5 lässt das Tal als Objekt weg), einzelne Berg-Fälle über TGN.
+
+**Nächster Schritt (nicht eingebaut):** Triage in Phase 1a
+(`locatable` = specific/area/none, im Test 17 von 19 Fällen wie meine
+Einschätzung) und ein Schritt 2 mit einem stärkeren Modell nur für die
+bestimmbaren Fälle ohne Koordinate. Koordinaten auch dort nie vom Modell.

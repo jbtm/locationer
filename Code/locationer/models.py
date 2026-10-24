@@ -13,6 +13,10 @@ class NormalizedRecord:
     tgn_id: str = ""       # Getty TGN identifier, set by Phase 1c
     tgn_name: str = ""     # TGN canonical name
     geocoding_queries: list = field(default_factory=list)  # Nominatim queries in local language
+    image_type: str = ""   # portrait | group | event | view | landscape | other (Phase 1a)
+    city_source: str = ""  # 'text' (aus der Eingabe) | 'knowledge' (von Haiku gewusst) | ''
+    conflict: str = ""     # Widerspruch Eingabe ↔ Wissen, fuer die Pruefliste
+    input_title: str = ""  # Titel aus der Eingabe, unveraendert (nicht gecacht, je Lauf gesetzt)
 
 
 @dataclass

@@ -621,6 +621,11 @@ def _process_chunk(
             # weil `_als_importstruktur()` die SPAETERE Spalte nimmt.
             "Exakte Koordinaten": _punkt,
             "Ambiguous": geo.ambiguous,
+            # Phase 1a: Bildtyp (Porträts spaeter nicht teuer nachfassen) und
+            # Widerspruch Eingabe ↔ Wissen als Pruefliste.  Eigene Spalten —
+            # `Bemerkungen` gehoert der Importvorlage und wird durchgereicht.
+            "Bildtyp": rec.image_type,
+            "Widerspruch": rec.conflict,
             "Ext-Calls": 1 if (geo.source in ("wikidata","nominatim") and geo.debug_info != ["cache hit"]) else 0,
         }
         if has_true_coords:

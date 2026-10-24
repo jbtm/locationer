@@ -97,7 +97,7 @@ Parameter identisch zu V3: `--mode`, `--limit`, `--chunk-size`, `--output`, `--g
 **Entry point:** `python -m locationer` → `locationer/__main__.py`
 
 ### Phase 1a — Location-Extraktion (`locationer/input_normalizer.py`)
-- Claude Haiku, Batch à 20 → `title`, `country`, `city`, `location`
+- Claude Haiku 5.5 (effort low), Batch à 20 → `title`, `image_type`, `country`, `region`, `city`, `city_source`, `location`, `conflict`
 - City-Normalisierung: "Chur GR" → "Chur", "7000 Chur" → "Chur"
 - Cache: `norm_cache`
 
@@ -197,10 +197,12 @@ python -m locationer.overrides norm-list
 
 ## Kosten (Erstlauf, keine Cache-Treffer)
 
+Haiku 5.5 low, gemessen 2026-10-24 (vorher Haiku 4.5: rund das Vierfache):
+
 | Datenmenge | Haiku (1a+1b) | TGN | Nominatim | Total |
 |---|---|---|---|---|
-| 1'000 Zeilen | ~$0.35 | $0 | $0 | ~$0.35 |
-| 700k Zeilen | ~$280 | $0 | $0* | ~$280 |
+| 1'000 Zeilen | ~$0.20 | $0 | $0 | ~$0.20 |
+| 700k Zeilen | ~$140 | $0 | $0* | ~$140 |
 
 *Nominatim public: 1 req/s → 700k unique Queries ≈ 194h. Self-hosted empfohlen.
 
