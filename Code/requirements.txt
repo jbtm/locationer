@@ -1,9 +1,13 @@
-anthropic
-requests
-python-dotenv
-pandas
-openpyxl
-folium
+# Feste Versionen (2026-10-25): der Server soll genau das ausfuehren, was lokal
+# getestet ist.  Ohne Pin holte er anthropic 2.3 statt 1.8.  Aendern nur mit
+# Kontrolllauf.
+anthropic==1.8.0
+requests==2.34.2
+python-dotenv==1.2.3
+pandas==3.0.6
+numpy==2.4.6
+openpyxl==3.1.5
+folium==0.20.0
+flask==3.1.3
+gunicorn==26.2.0
 pytest
-flask
-gunicorn

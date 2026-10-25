@@ -59,3 +59,6 @@ __pycache__/
 Code/auftraege/
 # Beim Deployment geschrieben (Git-Commit des ausgerollten Codes).
 Code/locationer/BUILD
+
+# Zugang zum Server-Locationer (Passwort, API-Schluessel) — nie committen
+Code/.locationer_zugang
