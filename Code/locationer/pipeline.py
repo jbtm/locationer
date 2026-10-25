@@ -257,6 +257,8 @@ def _debug(i: int, total: int, rec: NormalizedRecord, geo: GeoResult, true: tupl
     print(f"\n{'─'*70}")
     print(f"[{i}/{total}] {rec.title}")
     print(f"  country={rec.country!r}  region={rec.region!r}  city={rec.city!r}  location={rec.location!r}")
+    print(f"  city_source={rec.city_source!r}  location_kind={rec.location_kind!r}  image_type={rec.image_type!r}"
+          + (f"  conflict={rec.conflict!r}" if rec.conflict else ""))
     print(f"  description={rec.description[:80]!r}{'…' if len(rec.description)>80 else ''}")
     for step in geo.debug_info:
         print(f"  ▸ {step}")

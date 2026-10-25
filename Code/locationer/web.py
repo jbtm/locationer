@@ -18,7 +18,7 @@ import io
 import json
 import os
 import threading
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 
 import pandas as pd
@@ -346,7 +346,12 @@ _SOFORT = threading.Lock()      # einer nach dem anderen — der Server hat 4 GB
 
 @app.route("/api/orte", methods=["POST"])
 def api_orte():
-    """Bis 50 Zeilen sofort: {"zeilen": [{"title": …, "description": …}, …], "bbox": …}"""
+    """Bis 50 Zeilen sofort: {"zeilen": [{"title": …, "description": …}, …], "bbox": …}
+
+    Mit "logik": true kommt das Debug-Protokoll mit (Antwort von Haiku, jede
+    Station im Geostack, Kandidaten, Nachfassen) — fuer den Knopf „Logik" in
+    der Einzelabfrage.  Dieselbe Pipeline; der Debug-Modus druckt nur mehr.
+    """
     from .pipeline import Umgebung, paket
     daten = request.get_json(silent=True) or {}
     zeilen = daten.get("zeilen")
@@ -362,17 +367,24 @@ def api_orte():
         return _fehler(halt, 429)
     df = pd.DataFrame(zeilen)
     kasse = Kasse()
+    logik = bool(daten.get("logik"))
+    protokoll = io.StringIO()
     with _SOFORT:
-        u = Umgebung(kasse=kasse, bbox=bbox, mode="human", fortschritt=False)
+        u = Umgebung(kasse=kasse, bbox=bbox, mode="debug" if logik else "human", fortschritt=False)
         try:
-            out, _, verdacht = paket(u, df, 0, len(df), False, ausgeben=False)
+            # _SOFORT haelt andere Einzelabfragen draussen; sonst druckt in
+            # diesem Dienst niemand nach stdout.
+            with redirect_stdout(protokoll):
+                out, _, verdacht = paket(u, df, 0, len(df), False, ausgeben=logik)
         finally:
             u.schliessen()
     with _db() as conn:
         R.ausgabe_buchen(conn, kasse.usd)
     out = out.astype(object).where(pd.notna(out), None)
-    return jsonify({"zeilen": out.to_dict("records"), "verdacht": verdacht,
-                    "kosten_chf": round(kasse.chf, 4)})
+    antwort = {"zeilen": out.to_dict("records"), "verdacht": verdacht, "kosten_chf": round(kasse.chf, 4)}
+    if logik:
+        antwort["logik"] = protokoll.getvalue().strip("\n")
+    return jsonify(antwort)
 
 
 # ── Vorlagen ──────────────────────────────────────────────────────────────────
@@ -492,6 +504,10 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
         <span class="hinweis" id="ek_info">Dieselbe Auswertung wie eine Zeile in einer CSV-Datei, mit der Bbox aus „Neuer Auftrag“.</span></div>
     </form>
     <div class="zwei" id="ek_erg" hidden><dl id="ek_dl"></dl><div id="ek_karte"></div></div>
+    <div class="reihe" id="ek_logik_reihe" hidden>
+      <button type="button" id="ek_logik_knopf" aria-expanded="false">Logik</button>
+      <span class="hinweis">Was Haiku verstanden hat und was jede Datenbank geantwortet hat.</span></div>
+    <pre id="ek_logik" hidden style="margin-top:10px;max-height:480px"></pre>
   </div>
 
   <div class="karte" id="detail" hidden></div>
@@ -662,7 +678,9 @@ $('#ek').addEventListener('submit', async ev => {
   try {
     const d = await api('api/orte', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({zeilen: [{title: $('#ek_titel').value, description: $('#ek_beschr').value}],
-                            bbox: $('#bbox').value})});
+                            bbox: $('#bbox').value, logik: true})});
+    $('#ek_logik').textContent = d.logik || '(kein Protokoll)';
+    $('#ek_logik_reihe').hidden = false;
     const z = d.zeilen[0], lat = z['Breitengrad'], lon = z['Längengrad'];
     const dl = $('#ek_dl'); dl.replaceChildren();
     const paar = (k, v, info) => {
@@ -704,6 +722,11 @@ $('#ek').addEventListener('submit', async ev => {
     $('#ek_info').textContent = '';
   } catch (e) { $('#ek_info').textContent = e.message; }
   $('#ek_los').disabled = false;
+});
+
+$('#ek_logik_knopf').addEventListener('click', ev => {
+  const pre = $('#ek_logik'); pre.hidden = !pre.hidden;
+  ev.currentTarget.setAttribute('aria-expanded', String(!pre.hidden));
 });
 
 laden(); setInterval(laden, 4000);

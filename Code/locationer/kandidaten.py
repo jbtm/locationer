@@ -184,6 +184,12 @@ class Kandidatenpruefer:
                 antworten[f[3]] = json.loads(row[0])
             elif f[3] not in {o[3] for o in offen}:
                 offen.append(f)
+        if self.debug:
+            for _, rec, kand, _ in faelle:
+                print(f"  [kandidaten] {rec.title[:50]!r} — {len(kand)} Kandidaten aus Wikidata:")
+                for b, k in zip(string.ascii_uppercase, kand):
+                    print(f"      {b}) {k['label']} ({k['qid']}) — {k.get('beschreibung', '')[:60]}"
+                          f"{' — ' + k['abstand'] if k.get('abstand') else ''}")
         for s in range(0, len(offen), _BATCH):
             teil = offen[s:s + _BATCH]
             for f, ant in zip(teil, self._frage([(rec, kand) for _, rec, kand, _ in teil])):
@@ -203,10 +209,13 @@ class Kandidatenpruefer:
                 # nichts ueber den Aufnahmeort.  Es bleibt beim Ort.
                 form = "Linie" if ant["shape"] == "line" else "Fläche"
                 rec.nachgefasst = f"Kandidat: {kand[idx]['label']} — {form}, kein Punkt"
+                if self.debug:
+                    print(f"  [kandidaten] {rec.title[:50]!r}: {kand[idx]['label']} gewählt, aber {form} — kein Punkt")
                 continue
             if not (0 <= idx < len(kand)) or ant.get("certainty") != "high":
                 if self.debug:
-                    print(f"  [kandidaten] {rec.title[:50]!r}: keiner ({ant.get('reason', '—')})")
+                    print(f"  [kandidaten] {rec.title[:50]!r}: keiner — Wahl {wahl or '–'}, "
+                          f"Sicherheit {ant.get('certainty', '?')} ({ant.get('reason', '—')})")
                 continue
             c = kand[idx]
             alt = geos[k]

@@ -202,6 +202,10 @@ class Nachfasser:
             [records[k] for k in kand], "triage", _TRIAGE_BATCH,
             lambda rs: self._frage(rs, TRIAGE_PROMPT, MODEL, _MODEL_KW, _MAX_TOKENS, "haiku"))
         spez = [k for k, t in zip(kand, tri) if t.get("locatable") == "specific"]
+        if self.debug:
+            for k, t in zip(kand, tri):
+                print(f"  [nachfassen] {records[k].title[:50]!r}: Triage {t.get('locatable', '?')}"
+                      + ("" if t.get("locatable") == "specific" else " — nicht weiter"))
         if not spez:
             return
         self.bestimmbar += len(spez)
