@@ -1501,6 +1501,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 5.0.1 | 2026-10-25 | CSV-Felder über 128 KB lesbar (DISCO); gescheiterte Prüfung eines Auftrags wiederholbar |
 | 5.0.0 | 2026-10-25 | Haiku 5.5 mit Prompt v4; Schritt 2 (Triage + Opus 5.5); Zuordnung über Nummer + Echo; Akzent-Lücke GeoNames; Aufträge mit Teildateien; Parallelität; Kostengrenze; Server-Betrieb mit Webseite und API |
 | 4.x | bis 2026-10-23 | Haiku 4.5, Geostack mit Wikidata, Pictomap-Rückfluss, harte Region (ohne Versionsnummer geführt) |
 | 3 | 2026 | erste Fassung mit GEO DB, TGN, Nominatim |

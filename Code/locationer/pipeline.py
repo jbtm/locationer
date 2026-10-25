@@ -207,6 +207,11 @@ def _has_unknown_location(row: dict) -> bool:
 
 
 def _read(path: str) -> pd.DataFrame:
+    # Der Python-CSV-Leser bricht bei Feldern ueber 128 KB ab.  DISCO hat eine
+    # Beschreibung mit 180000 Zeichen (Napoléon III, eine ganze Biografie);
+    # beide Leser zaehlen damit dieselben 705224 Zeilen.
+    import csv
+    csv.field_size_limit(sys.maxsize)
     p = Path(path)
     if p.suffix.lower() in (".xlsx", ".xls"):
         df = pd.read_excel(p)

@@ -63,6 +63,10 @@ def pruefen(conn, row) -> None:
     aid = row["id"]
     a_dir = R.verzeichnis(aid)
     up = upload_pfad(aid)
+    if a_dir.exists() and not (a_dir / "auftrag.json").exists() and not any(a_dir.glob("teile/p*.csv")):
+        # Anlegen ist frueher gescheitert (nur die Kopie der Eingabe liegt da):
+        # weg damit, sonst verweigert anlegen() das nicht leere Verzeichnis.
+        shutil.rmtree(a_dir)
     if (a_dir / "auftrag.json").exists():
         a = Auftrag(a_dir)          # angelegt, aber die Schaetzung kam nicht durch: nur diese wiederholen
     else:
