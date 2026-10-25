@@ -1565,6 +1565,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.0.1 | 2026-10-25 | Einzelabfrage: Karte erscheint (Kreis erst nach dem Ausschnitt), ⓘ-Erklärungen zu Gitter, Score und Bildtyp |
 | 6.0.0 | 2026-10-25 | Gemeinde-Prüfung (10 Länder); Objektart von Haiku statt Wortliste; Phase 1a effort medium mit Fassung im Cache; Region aus Département/Provinz, ohne grossen Kreis; Naturobjekt-Regel für alle Quellen, Gewässer auch aus dem Titel; Schritt 1.5 Kandidaten-Prüfung; Einzelabfrage und Zeitstempel im GUI |
 | 5.0.1 | 2026-10-25 | CSV-Felder über 128 KB lesbar (DISCO); gescheiterte Prüfung eines Auftrags wiederholbar |
 | 5.0.0 | 2026-10-25 | Haiku 5.5 mit Prompt v4; Schritt 2 (Triage + Opus 5.5); Zuordnung über Nummer + Echo; Akzent-Lücke GeoNames; Aufträge mit Teildateien; Parallelität; Kostengrenze; Server-Betrieb mit Webseite und API |

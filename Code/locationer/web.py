@@ -453,6 +453,8 @@ textarea{width:100%;padding:7px 9px;border:1px solid var(--lin);border-radius:5p
 @media(max-width:820px){.zwei{grid-template-columns:1fr}}
 #ek_karte{height:300px;border-radius:6px;border:1px solid var(--lin)}
 .kopf{display:flex;align-items:baseline;gap:12px} .kopf h2{margin-bottom:14px} .kopf button{margin-left:auto}
+button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,serif;color:var(--akz);border-color:var(--akz);background:var(--kar);vertical-align:1px}
+.erkl{margin-top:4px;max-width:46ch}
 </style>
 <div class="hut">
   <h1>Locationer</h1>
@@ -648,6 +650,11 @@ $('#tg_knopf').addEventListener('click', () => {
 });
 
 // ── Einzelabfrage: eine Zeile über /api/orte, also dieselbe Pipeline wie im Auftrag
+const ERKL = {
+  gitter: 'Unschärfe in Metern: in diesem Radius darf Pictomap das Bild um den Punkt streuen. 0 = genauer Punkt (Gebäude, Gipfel), 100 = Objekt gefunden, aber eine Fläche, mehr = nur der Ort ist bekannt (Radius nach Ortsgrösse). Leer = keine Koordinate.',
+  score: '5 = Objekt in GeoNames, TGN oder Ortsnamen-Datenbank gefunden · 4 = Objekt über Wikidata oder OpenStreetMap gefunden · 3 = nur der Ort, Mittelpunkt aus GeoNames · 2 = nur der Ort, über OpenStreetMap · 0 = keine Koordinate.',
+  bildtyp: 'Aus Titel und Beschreibung, nicht aus dem Bild: portrait = Person(en) als Motiv · group = gestelltes Gruppenbild · event = Fest, Umzug, Markt, Szene · view = Gebäude, Strasse, Platz, Ortsansicht, Innenraum · landscape = Natur, Berge, See, Küste · other = Fahrzeuge, Dokumente, Reproduktionen.',
+};
 let ekKarte = null;
 $('#ek').addEventListener('submit', async ev => {
   ev.preventDefault();
@@ -658,11 +665,22 @@ $('#ek').addEventListener('submit', async ev => {
                             bbox: $('#bbox').value})});
     const z = d.zeilen[0], lat = z['Breitengrad'], lon = z['Längengrad'];
     const dl = $('#ek_dl'); dl.replaceChildren();
-    const paar = (k, v) => dl.append(el('dt', {}, k), el('dd', {}, v == null || v === '' ? '–' : v));
+    const paar = (k, v, info) => {
+      const dd = el('dd', {}, v == null || v === '' ? '–' : v);
+      const dt = el('dt', {}, k);
+      if (info) {
+        // ⓘ klappt die Erklärung auf — ein title-Tooltip ginge auf dem Telefon nicht.
+        const txt = el('div', {class: 'hinweis erkl', hidden: ''}, info);
+        dt.append(' ', el('button', {type: 'button', class: 'info', 'aria-label': k + ' erklären',
+          onclick: () => { txt.hidden = !txt.hidden; }}, 'i'));
+        dd.append(txt);
+      }
+      dl.append(dt, dd);
+    };
     paar('Titel', z['Name']); paar('Land', z['Land']); paar('Region', z['Region']); paar('Ort', z['Stadt/Ort']);
     paar('Koordinaten', lat == null ? 'keine' : Number(lat).toFixed(5) + ', ' + Number(lon).toFixed(5));
-    paar('Gitter', z['Gitter'] == null ? null : z['Gitter'] + ' m');
-    paar('Score', z['Coord-Quality-Score']); paar('Bildtyp', z['Bildtyp']);
+    paar('Gitter', z['Gitter'] == null ? null : z['Gitter'] + ' m', ERKL.gitter);
+    paar('Score', z['Coord-Quality-Score'], ERKL.score); paar('Bildtyp', z['Bildtyp'], ERKL.bildtyp);
     if (z['Ambiguous']) paar('Ort mehrdeutig', 'ja');
     if (z['Nachgefasst']) paar('Nachgefasst', z['Nachgefasst']);
     if (z['Widerspruch']) paar('Widerspruch', z['Widerspruch']);
@@ -676,10 +694,12 @@ $('#ek').addEventListener('submit', async ev => {
     ekKarte.invalidateSize();
     ekKarte.eachLayer(l => { if (!(l instanceof L.TileLayer)) ekKarte.removeLayer(l); });
     if (lat != null) {
-      L.marker([lat, lon]).addTo(ekKarte).bindPopup(z['Name'] || '');
-      const r = Number(z['Gitter'] || 0);
-      if (r > 0) { const k = L.circle([lat, lon], {radius: r, weight: 1}).addTo(ekKarte); ekKarte.fitBounds(k.getBounds()); }
-      else ekKarte.setView([lat, lon], 16);
+      // Erst der Ausschnitt, dann die Ebenen: ein Kreis auf einer Karte ohne
+      // Ausschnitt wirft in Leaflet „layerPointToLatLng" (erster Test 2026-10-25).
+      const p = L.latLng(lat, lon), r = Number(z['Gitter'] || 0);
+      if (r > 0) ekKarte.fitBounds(p.toBounds(r * 2.4)); else ekKarte.setView(p, 16);
+      L.marker(p).addTo(ekKarte).bindPopup(z['Name'] || '');
+      if (r > 0) L.circle(p, {radius: r, weight: 1}).addTo(ekKarte);
     } else ekKarte.setView([46.8, 8.2], 3);
     $('#ek_info').textContent = '';
   } catch (e) { $('#ek_info').textContent = e.message; }
