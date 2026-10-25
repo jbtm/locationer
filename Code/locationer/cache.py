@@ -74,6 +74,8 @@ class Cache:
             "ALTER TABLE norm_cache ADD COLUMN image_type TEXT",
             "ALTER TABLE norm_cache ADD COLUMN city_source TEXT",
             "ALTER TABLE norm_cache ADD COLUMN conflict TEXT",
+            "ALTER TABLE norm_cache ADD COLUMN location_kind TEXT",
+            "ALTER TABLE norm_cache ADD COLUMN fassung TEXT",
             "ALTER TABLE geo_cache  ADD COLUMN ambiguous INTEGER DEFAULT 0",
             "ALTER TABLE geo_cache  ADD COLUMN location_hint TEXT",
             "ALTER TABLE geo_cache  ADD COLUMN city_hint TEXT",
@@ -85,13 +87,18 @@ class Cache:
                 pass  # column already exists
         self.conn.commit()
 
-    def get_norm(self, raw_key: str) -> Optional[NormalizedRecord]:
+    def get_norm(self, raw_key: str, fassung: str = "") -> Optional[NormalizedRecord]:
+        """Gemerkte Phase-1a-Antwort — nur, wenn sie mit derselben Fassung von
+        Anweisung und Einstellungen entstand (input_normalizer.NORM_FASSUNG).
+        Sonst None: die Zeile wird neu gefragt."""
         row = self.conn.execute(
             "SELECT title, description, country, city, location, region, geocoding_queries, "
-            "image_type, city_source, conflict FROM norm_cache WHERE key=?",
+            "image_type, city_source, conflict, location_kind, fassung FROM norm_cache WHERE key=?",
             (_key(raw_key),),
         ).fetchone()
         if not row:
+            return None
+        if fassung and (row[11] or "") != fassung:
             return None
         gq = []
         if row[6]:
@@ -104,19 +111,21 @@ class Cache:
             city=row[3], location=row[4], region=row[5] or "",
             geocoding_queries=gq,
             image_type=row[7] or "", city_source=row[8] or "", conflict=row[9] or "",
+            location_kind=row[10] or "",
         )
 
-    def set_norm(self, raw_key: str, rec: NormalizedRecord):
+    def set_norm(self, raw_key: str, rec: NormalizedRecord, fassung: str = ""):
         self.conn.execute(
             "INSERT OR REPLACE INTO norm_cache "
             "(key,title,description,country,region,city,location,geocoding_queries,"
-            "image_type,city_source,conflict) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "image_type,city_source,conflict,location_kind,fassung) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 _key(raw_key), rec.title, rec.description, rec.country,
                 rec.region, rec.city, rec.location,
                 json.dumps(rec.geocoding_queries) if rec.geocoding_queries else None,
                 rec.image_type, rec.city_source, rec.conflict,
+                rec.location_kind or "", fassung or None,
             ),
         )
         self.conn.commit()

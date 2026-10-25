@@ -1490,6 +1490,70 @@ rot oben auf der Seite, der Tab-Titel zeigt „⏸".
 
 ---
 
+### Nachtrag 2026-10-25 (v6.0.0): Gemeinde, Objektart, Kandidaten-Prüfung
+
+Auslöser: ZIN 25425 „Winterthur, Ortsteilansicht" (Bahnhofplatz) lag mit
+Score 5 am Zürcher Bahnhofplatz, dazu ein Google-Vergleich (100 Objekte ZIN
+und DISCO) und ein zweiter auf 228 neuen DISCO-Objekten. Alle Änderungen sind
+allgemeine Regeln; eine Regel, die bei 2524 Ortsnamen nur einen Fall (Au)
+geändert hätte, wurde wieder entfernt (kein Overfitting).
+
+**Gemeinde-Prüfung (geostack `_ausserhalb_gemeinde`).** Ein Gebäude muss in
+der Gemeinde des Ortsankers liegen — gemessen an der Gemeinde eines der 5
+nächsten GeoNames-Orte (mit Stadtteilen, PPLX). Die Gemeinde steht je Land auf
+einer anderen Ebene (`geo_db.GEMEINDE_EBENE`: CH/LI/AT/IT/ES admin3,
+FR/DE/BE admin4, NL/PT admin2); sonst gilt der einfache Stadtradius. Gelände
+(Berg, See, Pass …) bleibt beim grossen Radius. Gilt für GeoNames, Länder-DB,
+TGN, Wikidata und Nominatim.
+
+**Objektart von Haiku (`location_kind`).** Phase 1a sagt, ob das Objekt
+`building`, `street` oder `nature` ist — in jeder Sprache. Die Wortliste
+(`_GEO_FEATURE_TOKENS`, de/fr/it/en) gilt nur noch für alte Cache-Einträge.
+Kennt die Quelle die Art (GeoNames-Klasse T/H/V/U, TGN-Typ), gilt die Quelle.
+
+**Phase 1a: effort medium, Fassung im Cache.** Auf 200 Zeilen je zweimal
+gefragt sprang die Koordinate bei 7 statt 12 Zeilen (> 25 km: 2 statt 5),
++8 % Kosten. Jeder `norm_cache`-Eintrag trägt die Fassung
+(`input_normalizer.NORM_FASSUNG`); passt sie nicht, wird neu gefragt. Bei jeder
+Änderung an Anweisung, Modell oder Einstellung die Fassung erhöhen.
+Haiku-Streuung: zweimal gefragt wechselt das Objekt in 15–18 % der Zeilen
+(alte und neue Anweisung gleich), nicht vorhersagbar.
+
+**Region.** `region_to_admin1` erkennt auch Départements/Provinzen (ADM2 →
+admin1) und alle Schreibvarianten. Bisher fiel die Regionsgrenze bei
+„Hautes-Pyrénées" stillschweigend weg (Route de Gavarnie → Dordogne, 310 km).
+`_in_region` ohne grossen Kantonskreis: liegt der Punkt nicht bei Orten der
+Region, muss ein Ort der Region höchstens 25 km entfernt sein (Seen,
+Grenzberge); den Kreis gibt es nur noch, wo 20 km um den Punkt kein Ort liegt.
+
+**Naturobjekt beim Ort — alle Quellen, Gewässer auch aus dem Titel.** Die
+Regel „Naturobjekt nur aus der Beschreibung → Ortsmittelpunkt, wenn ausserhalb
+des Ortsradius" gilt jetzt auch für Wikidata und Nominatim. Flüsse, Seen,
+Kanäle (`_gewaesser`, laut GeoNames/TGN) fallen auch dann auf den Ort zurück,
+wenn sie im Titel stehen („Besançon … le Doubs" lag 84 km flussabwärts).
+
+**Schritt 1.5: Kandidaten-Prüfung (`kandidaten.py`).** Für Nicht-Porträts mit
+genanntem Objekt ohne genauen Treffer: Wikidata-Volltextsuche (genau und
+unscharf, nur mit Koordinate, im Umkreis), Filter Land/Region/Gemeinde, dann
+prüft Haiku (effort medium) kritisch, welcher Kandidat gemeint ist. Nur
+„high" und nur Punkte (keine Linien, keine Flächen); Koordinate aus Wikidata.
+Treffer in der Nachbargemeinde (im Stadtradius) werden dem Modell mit Hinweis
+vorgelegt statt verworfen („Bingen, Château de Rheinstein" → Trechtingshausen),
+Gattungswörter lehnt es dort ab. Cache: `wikidata_kandidaten`,
+`kandidat_cache`. Abschaltbar mit `KANDIDATEN=0`.
+
+**Kosten (gemessen auf 300 neuen DISCO-Zeilen):** 0.00096 USD pro neue Zeile
+(1a 0.00023, 1b 0.00012, Kandidaten < 0.00003, Schritt 2 ≈ 0.0006); Durchsatz
+0.7 Zeilen/s mit 6 Paketen. DISCO (562515 neue Zeilen): ≈ 540 USD ≈ 490 CHF,
+≈ 9–10 Tage. `USD_PRO_NEUE_ZEILE` auf 0.0011.
+
+**Wikidata-Kennung** ohne persönliche Mailadresse
+(`Locationer/6.0 (https://pictomap.ch; https://locomot.ch)`).
+
+**Oberfläche:** Einzelabfrage (Titel + Beschreibung → dieselbe Pipeline wie
+eine CSV-Zeile, mit Karte), Aufträge einklappbar, Dateiname und Zeitstempel
+(erstellt, gestartet, beendet, Rechenzeit).
+
 ## Versionen
 
 Regel: MAJOR = Ergebnisse ändern sich grundlegend (Modell, Pipeline-Schritt),
@@ -1501,6 +1565,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.0.0 | 2026-10-25 | Gemeinde-Prüfung (10 Länder); Objektart von Haiku statt Wortliste; Phase 1a effort medium mit Fassung im Cache; Region aus Département/Provinz, ohne grossen Kreis; Naturobjekt-Regel für alle Quellen, Gewässer auch aus dem Titel; Schritt 1.5 Kandidaten-Prüfung; Einzelabfrage und Zeitstempel im GUI |
 | 5.0.1 | 2026-10-25 | CSV-Felder über 128 KB lesbar (DISCO); gescheiterte Prüfung eines Auftrags wiederholbar |
 | 5.0.0 | 2026-10-25 | Haiku 5.5 mit Prompt v4; Schritt 2 (Triage + Opus 5.5); Zuordnung über Nummer + Echo; Akzent-Lücke GeoNames; Aufträge mit Teildateien; Parallelität; Kostengrenze; Server-Betrieb mit Webseite und API |
 | 4.x | bis 2026-10-23 | Haiku 4.5, Geostack mit Wikidata, Pictomap-Rückfluss, harte Region (ohne Versionsnummer geführt) |

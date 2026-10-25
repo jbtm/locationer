@@ -87,7 +87,7 @@ def schaetzen(df: pd.DataFrame, extra_desc_cols=None) -> dict:
     pro Zeile (kasse.USD_PRO_NEUE_ZEILE).
     """
     from .cache import Cache
-    from .input_normalizer import _clean, _map_columns, _raw_key
+    from .input_normalizer import NORM_FASSUNG, _clean, _map_columns, _raw_key
     from .pipeline import _CACHE_DEFAULT
     cols = list(extra_desc_cols if extra_desc_cols is not None else _EXTRA_DESC_COLS)
     cache = Cache(_CACHE_DEFAULT)
@@ -97,7 +97,7 @@ def schaetzen(df: pd.DataFrame, extra_desc_cols=None) -> dict:
             teil = df.iloc[a:a + 10000]
             for row in teil.where(pd.notna(teil), None).to_dict("records"):
                 keys.add(_raw_key({k: _clean(v) for k, v in _map_columns(row, cols).items()}))
-        neu = sum(1 for k in keys if cache.get_norm(k) is None)
+        neu = sum(1 for k in keys if cache.get_norm(k, NORM_FASSUNG) is None)
     finally:
         cache.close()
     usd = neu * USD_PRO_NEUE_ZEILE

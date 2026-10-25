@@ -113,9 +113,16 @@ ohne. **Vor jedem Deployment Version erhoehen, Zeile in description.md
 **Entry point:** `python -m locationer` → `locationer/__main__.py`
 
 ### Phase 1a — Location-Extraktion (`locationer/input_normalizer.py`)
-- Claude Haiku 5.5 (effort low), Batch à 20 → `title`, `image_type`, `country`, `region`, `city`, `city_source`, `location`, `conflict`
+- Claude Haiku 5.5 (effort medium), Batch à 20 → `title`, `image_type`, `country`, `region`, `city`, `city_source`, `location`, `location_kind` (building/street/nature), `conflict`
+- `NORM_FASSUNG`: bei jeder Änderung an Prompt, Modell oder effort erhöhen — Cache-Einträge anderer Fassung werden neu gefragt
 - City-Normalisierung: "Chur GR" → "Chur", "7000 Chur" → "Chur"
 - Cache: `norm_cache`
+
+### Schritt 1.5 — Kandidaten-Prüfung (`locationer/kandidaten.py`)
+- Nicht-Porträts mit genanntem Objekt, aber ohne genauen Treffer (Ortsmitte oder nichts)
+- Kandidaten: Wikidata-Volltextsuche (genau + unscharf, nur mit P625, im Umkreis), gefiltert nach Land/Region/Gemeinde
+- Haiku 5.5 (medium) prüft kritisch: nur „high", nur Punkte; Nachbargemeinde nur bei eindeutig benanntem Ort
+- Cache: `wikidata_kandidaten`, `kandidat_cache`; abschaltbar mit `KANDIDATEN=0`
 
 ### Schritt 2 — Nachfassen (`locationer/nachfassen.py`)
 - Nur Nicht-Porträts, die nach dem GeoStack ohne Koordinate sind
@@ -186,6 +193,7 @@ Timeouts. Re-aktivierbar wenn lokale Wikidata-Instanz verfügbar.
 | `geo_cache` | Phase 2 Ergebnisse | `cache/locationer.sqlite` |
 | `nominatim_cache` | Nominatim-Antworten | `cache/locationer.sqlite` |
 | `nachfass_cache` | Schritt 2: Triage + Opus-Identifikation | `cache/locationer.sqlite` |
+| `wikidata_kandidaten`, `kandidat_cache` | Schritt 1.5: Kandidatenlisten + Haiku-Urteil | `cache/locationer.sqlite` |
 | TGN SQLite | Alle TGN-Orte (1.6M) | `tgn.sqlite` (LCMT_JBTM) |
 | `overrides` + `norm_overrides` | Manuelle Korrekturen | `explicit_list/explicit.sqlite` |
 
@@ -199,6 +207,8 @@ Bei Unsicherheit: betroffene Cache-Tabellen leeren.
 | `geostack.py`, `geo_db.py`, `country_db.py`, `tgn_db.py`, `nominatim.py` | `geo_cache` | `geo_cache` leeren |
 | `input_normalizer.py` | `norm_cache`, `meta_cache` | `norm_cache` + `meta_cache` leeren |
 | `nachfassen.py` (Prompts) | `nachfass_cache` | `UPDATE nachfass_cache SET ident=NULL` (bzw. `triage`) |
+| `kandidaten.py` (Prompt) | `kandidat_cache` | `DELETE FROM kandidat_cache` |
+| Phase-1a-Prompt/effort | `norm_cache` | `NORM_FASSUNG` erhöhen (kein Löschen nötig) |
 | Overrides (`explicit.sqlite`) | `geo_cache` (betroffene Einträge) | `geo_cache` komplett leeren |
 | Country DBs neu importiert | `geo_cache` | `geo_cache` leeren |
 

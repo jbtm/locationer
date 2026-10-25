@@ -27,6 +27,7 @@ from .geostack import GeoStack
 from .objekttyp import ist_punkt, _klein_norm as _klein_norm_lokal
 from .geo_db import ascii_norm, ascii_norm_de
 from .input_normalizer import InputNormalizer
+from .kandidaten import Kandidatenpruefer
 from .nachfassen import Nachfasser
 from .input_normalizer import _woerter
 from .models import GeoResult, NormalizedRecord
@@ -546,6 +547,7 @@ def _process_chunk(
     mode: str,
     nachfasser=None,
     ausgeben: bool = True,
+    pruefer=None,
 ) -> tuple[list[dict], int, list[int]]:
     normalized  = normalizer.normalize_batch(chunk_rows)
     metadata    = normalizer.extract_metadata_batch(chunk_rows)   # Phase 1b
@@ -590,6 +592,11 @@ def _process_chunk(
         else:
             g = geostack.geocode(rec)
         geos.append(g)
+    # Schritt 1.5: kein genauer Treffer, aber ein Objekt genannt → Kandidaten
+    # pruefen (kandidaten.py).  Vor Schritt 2, damit Opus nur noch bekommt,
+    # was danach ganz ohne Koordinate ist.
+    if pruefer:
+        pruefer.pruefen(normalized, geos, unbekannt)
     if nachfasser:
         nachfasser.nachfassen(normalized, geos, unbekannt)
 
@@ -767,6 +774,9 @@ class Umgebung:
             nachfassen = os.getenv("NACHFASSEN", "1") != "0"
         # Schritt 2 (nachfassen.py): Fehlschlaege per Triage + Opus nachfassen.
         self.nachfasser = Nachfasser(self.normalizer, self.geostack, self.cache, debug=debug) if nachfassen else None
+        # Schritt 1.5 (kandidaten.py): unscharfe Namen ueber Wikidata-Kandidaten + Haiku.
+        self.pruefer = (Kandidatenpruefer(self.normalizer, self.geostack, self.cache, debug=debug)
+                        if wikidata and os.getenv("KANDIDATEN", "1") != "0" else None)
 
     def zaehler(self) -> dict:
         n = self.nachfasser
@@ -774,7 +784,9 @@ class Umgebung:
                 "pictomap": self.geostack.pm_count,
                 "nachgefasst_kandidaten": n.kandidaten if n else 0,
                 "nachgefasst_bestimmbar": n.bestimmbar if n else 0,
-                "nachgefasst_gefunden": n.gefunden if n else 0}
+                "nachgefasst_gefunden": n.gefunden if n else 0,
+                "kandidaten_geprueft": self.pruefer.geprueft if self.pruefer else 0,
+                "kandidaten_gefunden": self.pruefer.gefunden if self.pruefer else 0}
 
     def schliessen(self) -> None:
         for db in (self.cache, self.overrides, self.pictomap_ref, self.geo_db, self.tgn_db,
@@ -790,7 +802,7 @@ def paket(u: Umgebung, chunk_df: pd.DataFrame, chunk_start: int, total: int,
     chunk_rows = chunk_df.where(pd.notna(chunk_df), None).to_dict("records")
     output_rows, unknown_loc, verdacht = _process_chunk(
         chunk_rows, chunk_start, total, u.normalizer, u.geostack, u.geo_db,
-        has_true_coords, u.mode, u.nachfasser, ausgeben)
+        has_true_coords, u.mode, u.nachfasser, ausgeben, u.pruefer)
     out_df = pd.concat([chunk_df.reset_index(drop=True), pd.DataFrame(output_rows)], axis=1)
     out_df = _als_importstruktur(out_df)
     # `Gitter` ist ganzzahlig (Meter).  Enthaelt die Spalte Leerwerte, macht

@@ -198,6 +198,7 @@ def api_anlegen():
             return _fehler("zeilen: Liste von Objekten erwartet")
         inhalt = pd.DataFrame(zeilen).to_csv(index=False).encode("utf-8")
         endung, name = ".csv", str(daten.get("name") or "API-Auftrag")
+        dateiname = "JSON-Zeilen"
         felder = daten
     else:
         datei = request.files.get("datei")
@@ -207,7 +208,8 @@ def api_anlegen():
         if endung not in ENDUNGEN:
             return _fehler(f"Nur {', '.join(sorted(ENDUNGEN))}")
         inhalt = datei.read()
-        name = request.form.get("name") or Path(datei.filename).name
+        dateiname = Path(datei.filename).name
+        name = request.form.get("name") or dateiname
         felder = request.form
     grenze = _zahl(felder.get("grenze_chf"), "grenze_chf")
     roh = str(felder.get("bbox") or "").strip()
@@ -223,9 +225,9 @@ def api_anlegen():
 
     with _db() as conn:
         cur = conn.execute(
-            "INSERT INTO auftrag (name, quelle, erstellt, zustand, grenze_chf, bbox, starten, aktualisiert) "
-            "VALUES (?, ?, ?, 'prüfen', ?, ?, ?, ?)",
-            (name[:200], "json" if request.is_json else ("api" if _api_schluessel_ok() else "web"),
+            "INSERT INTO auftrag (name, datei, quelle, erstellt, zustand, grenze_chf, bbox, starten, aktualisiert) "
+            "VALUES (?, ?, ?, ?, 'prüfen', ?, ?, ?, ?)",
+            (name[:200], dateiname[:200], "json" if request.is_json else ("api" if _api_schluessel_ok() else "web"),
              R.jetzt(), grenze, json.dumps(list(bbox)) if bbox else None, int(starten), R.jetzt()))
         aid = cur.lastrowid
         up = R.DATEN / "uploads"
@@ -308,7 +310,7 @@ def api_abbrechen(aid):
         if row["zustand"] == "läuft":
             R.aendern(conn, aid, soll="abbrechen")
         elif row["zustand"] in ("wartet", "bereit", "angehalten", "fehler", "prüfen"):
-            R.aendern(conn, aid, zustand="abgebrochen", grund="Von Hand abgebrochen", soll="")
+            R.aendern(conn, aid, zustand="abgebrochen", grund="Von Hand abgebrochen", soll="", beendet=R.jetzt())
         else:
             return _fehler(f"Zustand {row['zustand']}: nichts abzubrechen", 409)
         return jsonify(_als_dict(R.holen(conn, aid)))
@@ -441,7 +443,17 @@ form{background:var(--kar);border:1px solid var(--lin);border-radius:8px;padding
 </form>"""
 
 SEITE_START = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Locationer</title><style>""" + STIL + """</style>
+<title>Locationer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>""" + STIL + """
+textarea{width:100%;padding:7px 9px;border:1px solid var(--lin);border-radius:5px;background:var(--pap);
+         color:var(--tex);font:inherit;min-height:60px;resize:vertical}
+.zwei{display:grid;gap:18px;grid-template-columns:1fr 1fr;margin-top:14px}
+@media(max-width:820px){.zwei{grid-template-columns:1fr}}
+#ek_karte{height:300px;border-radius:6px;border:1px solid var(--lin)}
+.kopf{display:flex;align-items:baseline;gap:12px} .kopf h2{margin-bottom:14px} .kopf button{margin-left:auto}
+</style>
 <div class="hut">
   <h1>Locationer</h1>
   <span class="hinweis">{{ version }} · Orte für Bilder finden · Koordinaten nur aus Datenbanken</span>
@@ -466,12 +478,26 @@ SEITE_START = """<!doctype html><meta charset="utf-8"><meta name="viewport" cont
     </form>
   </div>
 
+  <div class="karte">
+    <h2>Einzelabfrage</h2>
+    <form id="ek">
+      <div class="raster" style="grid-template-columns:1fr 1fr">
+        <div><label for="ek_titel">Titel</label><input type="text" id="ek_titel" required
+             placeholder="z.B. Winterthur, Stadthaus, Teilansicht"></div>
+        <div><label for="ek_beschr">Beschreibung (optional)</label><textarea id="ek_beschr" rows="2"></textarea></div>
+      </div>
+      <div class="reihe"><button class="haupt" type="submit" id="ek_los">Ort suchen</button>
+        <span class="hinweis" id="ek_info">Dieselbe Auswertung wie eine Zeile in einer CSV-Datei, mit der Bbox aus „Neuer Auftrag“.</span></div>
+    </form>
+    <div class="zwei" id="ek_erg" hidden><dl id="ek_dl"></dl><div id="ek_karte"></div></div>
+  </div>
+
   <div class="karte" id="detail" hidden></div>
 
   <div class="karte">
     <h2>Aufträge</h2>
     <div class="wrap"><table>
-      <thead><tr><th>Nr</th><th>Name</th><th>Zustand</th><th>Fortschritt</th><th class="z">Zeilen</th>
+      <thead><tr><th>Nr</th><th>Name</th><th>Datei</th><th>Erstellt</th><th>Zustand</th><th>Fortschritt</th><th class="z">Zeilen</th>
         <th class="z">Kosten CHF</th><th class="z">Hochrechnung</th><th class="z">Grenze</th><th>Version</th></tr></thead>
       <tbody id="liste"></tbody>
     </table></div>
@@ -482,6 +508,13 @@ const $ = s => document.querySelector(s);
 let gewaehlt = null, liste = [];
 const chf = x => x == null ? '–' : Number(x).toFixed(2);
 const zahl = x => x == null ? '–' : String(x).replace(/\\B(?=(\\d{3})+(?!\\d))/g, "'");
+const zeit = x => x ? String(x).replace('T', ' ').slice(0, 16) : '–';
+function dauer(von, bis) {
+  if (!von) return '–';
+  const s = Math.max(0, ((bis ? new Date(bis) : new Date()) - new Date(von)) / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return (h ? h + ' h ' : '') + m + ' min' + (bis ? '' : ' (läuft noch)');
+}
 
 function el(tag, attrs = {}, ...kinder) {
   const e = document.createElement(tag);
@@ -505,7 +538,8 @@ function zeichneListe() {
   for (const a of liste) {
     const anteil = a.zeilen ? Math.min(100, 100 * a.erledigt / a.zeilen) : 0;
     const tr = el('tr', {class: 'zeile' + (a.id === gewaehlt ? ' wahl' : ''), onclick: () => waehle(a.id)},
-      el('td', {}, a.id), el('td', {}, a.name),
+      el('td', {}, a.id), el('td', {}, a.name), el('td', {class: 'hinweis'}, a.datei || '–'),
+      el('td', {class: 'hinweis'}, zeit(a.erstellt)),
       el('td', {}, el('span', {class: 'pille p-' + a.zustand}, a.zustand)),
       el('td', {}, el('div', {class: 'balken', title: anteil.toFixed(1) + ' %'}, el('i', {style: 'width:' + anteil + '%'}))),
       el('td', {class: 'z'}, zahl(a.erledigt) + ' / ' + zahl(a.zeilen)),
@@ -520,7 +554,8 @@ function zeichneListe() {
   document.title = (halt.length ? '⏸ ' + halt.length + ' · ' : '') + 'Locationer';
 }
 
-async function waehle(id) { gewaehlt = id; zeichneListe(); await zeichneDetail(); }
+// Ein zweiter Klick auf denselben Auftrag klappt ihn wieder zu.
+async function waehle(id) { gewaehlt = (gewaehlt === id ? null : id); zeichneListe(); await zeichneDetail(); }
 
 async function aktion(pfad, body) {
   try {
@@ -534,10 +569,16 @@ async function zeichneDetail() {
   if (gewaehlt == null) { box.hidden = true; return; }
   let a; try { a = await api('api/auftraege/' + gewaehlt); } catch (e) { box.hidden = true; return; }
   box.hidden = false; box.replaceChildren();
-  box.append(el('h2', {}, 'Auftrag ' + a.id + ' · ' + a.name));
+  box.append(el('div', {class: 'kopf'}, el('h2', {}, 'Auftrag ' + a.id + ' · ' + a.name),
+    el('button', {onclick: () => waehle(a.id), title: 'Detailansicht schliessen'}, 'Schliessen')));
   if (a.grund) box.append(el('div', {class: a.zustand === 'fehler' || a.zustand === 'angehalten' ? 'alarm' : 'gelb'}, el('strong', {}, a.zustand + ': '), a.grund));
   const s = a.schaetzung;
   const dl = el('dl', {},
+    el('dt', {}, 'Datei'), el('dd', {}, a.datei || '–'),
+    el('dt', {}, 'Erstellt'), el('dd', {}, zeit(a.erstellt)),
+    el('dt', {}, 'Gestartet'), el('dd', {}, zeit(a.gestartet)),
+    el('dt', {}, 'Beendet'), el('dd', {}, zeit(a.beendet)),
+    el('dt', {}, 'Rechenzeit'), el('dd', {}, a.gestartet ? dauer(a.gestartet, a.beendet) : '–'),
     el('dt', {}, 'Zustand'), el('dd', {}, a.zustand),
     el('dt', {}, 'Zeilen'), el('dd', {}, zahl(a.erledigt) + ' von ' + zahl(a.zeilen)),
     el('dt', {}, 'Schätzung vorher'), el('dd', {}, s ? (zahl(s.neu) + ' neue von ' + zahl(s.verschieden) + ' verschiedenen Zeilen → höchstens ' + chf(s.chf) + ' CHF') : '–'),
@@ -604,6 +645,45 @@ $('#tg_knopf').addEventListener('click', () => {
         try { await api('api/tagesgrenze', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({chf: ein.value})}); info.textContent = 'gespeichert'; laden(); }
         catch (e) { info.textContent = e.message; } }}, 'Speichern'), info));
   ein.focus();
+});
+
+// ── Einzelabfrage: eine Zeile über /api/orte, also dieselbe Pipeline wie im Auftrag
+let ekKarte = null;
+$('#ek').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  $('#ek_los').disabled = true; $('#ek_info').textContent = 'sucht … (einige Sekunden)';
+  try {
+    const d = await api('api/orte', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({zeilen: [{title: $('#ek_titel').value, description: $('#ek_beschr').value}],
+                            bbox: $('#bbox').value})});
+    const z = d.zeilen[0], lat = z['Breitengrad'], lon = z['Längengrad'];
+    const dl = $('#ek_dl'); dl.replaceChildren();
+    const paar = (k, v) => dl.append(el('dt', {}, k), el('dd', {}, v == null || v === '' ? '–' : v));
+    paar('Titel', z['Name']); paar('Land', z['Land']); paar('Region', z['Region']); paar('Ort', z['Stadt/Ort']);
+    paar('Koordinaten', lat == null ? 'keine' : Number(lat).toFixed(5) + ', ' + Number(lon).toFixed(5));
+    paar('Gitter', z['Gitter'] == null ? null : z['Gitter'] + ' m');
+    paar('Score', z['Coord-Quality-Score']); paar('Bildtyp', z['Bildtyp']);
+    if (z['Ambiguous']) paar('Ort mehrdeutig', 'ja');
+    if (z['Nachgefasst']) paar('Nachgefasst', z['Nachgefasst']);
+    if (z['Widerspruch']) paar('Widerspruch', z['Widerspruch']);
+    paar('Kosten', chf(d.kosten_chf) + ' CHF');
+    $('#ek_erg').hidden = false;
+    if (!ekKarte) {
+      ekKarte = L.map('ek_karte');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(ekKarte);
+    }
+    ekKarte.invalidateSize();
+    ekKarte.eachLayer(l => { if (!(l instanceof L.TileLayer)) ekKarte.removeLayer(l); });
+    if (lat != null) {
+      L.marker([lat, lon]).addTo(ekKarte).bindPopup(z['Name'] || '');
+      const r = Number(z['Gitter'] || 0);
+      if (r > 0) { const k = L.circle([lat, lon], {radius: r, weight: 1}).addTo(ekKarte); ekKarte.fitBounds(k.getBounds()); }
+      else ekKarte.setView([lat, lon], 16);
+    } else ekKarte.setView([46.8, 8.2], 3);
+    $('#ek_info').textContent = '';
+  } catch (e) { $('#ek_info').textContent = e.message; }
+  $('#ek_los').disabled = false;
 });
 
 laden(); setInterval(laden, 4000);

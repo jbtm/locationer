@@ -147,6 +147,23 @@ def _dist_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # Laender, in denen GeoNames-ADM3 die Gemeinde ist (naechster_ort).
 _GEMEINDE_IST_ADM3 = {"CH", "LI", "AT", "IT"}
 
+# Auf welcher Verwaltungsebene GeoNames die Gemeinde fuehrt — fuer die
+# Gemeinde-Pruefung (geostack._ausserhalb_gemeinde).  Geprueft 2026-10-25 an
+# Anzahl ADM-Eintraegen und Beispielorten (Metz 57463, Nürnberg 09564000,
+# Málaga 29067, Den Haag 0518).  Laender ohne Eintrag: nur Stadtradius.
+GEMEINDE_EBENE = {"CH": 3, "LI": 3, "AT": 3, "IT": 3, "ES": 3,
+                  "FR": 4, "DE": 4, "BE": 4, "NL": 2, "PT": 2}
+
+
+def gemeinde_von(row) -> "tuple | None":
+    """(Land, admin1 … adminN) bis zur Gemeindeebene — None, wenn unbekannt."""
+    cc = row["country_code"]
+    n = GEMEINDE_EBENE.get(cc)
+    if not n:
+        return None
+    teile = tuple(row[f"admin{k}"] for k in range(1, n + 1))
+    return (cc, *teile) if teile[-1] else None
+
 
 class GeoDatabase:
     def __init__(self, db_path: str):
@@ -249,29 +266,37 @@ class GeoDatabase:
 
         Tries ascii_norm (for geofeature.ascii_name_norm) and raw lowercase
         (for geo_alt_name.alt_name_norm which keeps diacritics).
+
+        Erst ADM1, dann ADM2 (→ dessen admin1).  Haiku nennt als Region oft
+        ein Departement oder eine Provinz („Hautes-Pyrénées", „Pas-de-Calais",
+        „Como").  Bis 2026-10-25 ergab das None — und damit fiel die harte
+        Regionsgrenze stillschweigend weg: „Route de Gavarnie" mit Region
+        Hautes-Pyrénées landete in der Dordogne.  Alle Schreibvarianten
+        (_ascii_norm_variants), sonst blieb „Provence-Alpes-Côte d'Azur"
+        unerkannt.
         """
-        norm = ascii_norm(region)
-        raw  = region.strip().lower()
-
-        # Primary name match (ascii-normalized, e.g. "kanton graubuenden")
-        row = self.conn.execute(
-            "SELECT admin1 FROM geofeature WHERE feature_code='ADM1' AND country_code=? AND ascii_name_norm=? LIMIT 1",
-            (country_code, norm),
-        ).fetchone()
-        if row:
-            return row["admin1"]
-
-        # Alt-name match — stored as raw lowercase with diacritics intact
-        for lookup in (raw, norm):
-            row = self.conn.execute(
-                """SELECT g.admin1 FROM geo_alt_name a
-                   JOIN geofeature g ON a.geoname_id = g.geoname_id
-                   WHERE g.feature_code='ADM1' AND g.country_code=? AND a.alt_name_norm=?
-                   LIMIT 1""",
-                (country_code, lookup),
-            ).fetchone()
-            if row:
-                return row["admin1"]
+        varianten = list(dict.fromkeys(_ascii_norm_variants(region) + [region.strip().lower()]))
+        for code in ("ADM1", "ADM2"):
+            for norm in varianten:
+                row = self.conn.execute(
+                    "SELECT admin1 FROM geofeature WHERE feature_code=? AND country_code=? "
+                    "AND ascii_name_norm=? AND admin1 IS NOT NULL AND admin1 != '' LIMIT 1",
+                    (code, country_code, norm),
+                ).fetchone()
+                if row:
+                    return row["admin1"]
+            # Alt-name match — stored as raw lowercase with diacritics intact
+            for norm in varianten:
+                row = self.conn.execute(
+                    """SELECT g.admin1 FROM geo_alt_name a
+                       JOIN geofeature g ON a.geoname_id = g.geoname_id
+                       WHERE g.feature_code=? AND g.country_code=? AND a.alt_name_norm=?
+                         AND g.admin1 IS NOT NULL AND g.admin1 != ''
+                       LIMIT 1""",
+                    (code, country_code, norm),
+                ).fetchone()
+                if row:
+                    return row["admin1"]
 
         return None
 
@@ -409,17 +434,18 @@ class GeoDatabase:
             -(r["population"] or 0),
         ))
 
-        # Ambiguity: multiple candidates that are geographically far apart
-        is_ambiguous = False
-        if len(candidates) >= 2:
-            dlat = math.radians(candidates[1]["lat"] - candidates[0]["lat"])
-            dlon = math.radians(candidates[1]["lon"] - candidates[0]["lon"])
-            a = (math.sin(dlat / 2) ** 2
-                 + math.cos(math.radians(candidates[0]["lat"]))
-                 * math.cos(math.radians(candidates[1]["lat"]))
-                 * math.sin(dlon / 2) ** 2)
-            dist = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-            is_ambiguous = dist > 30.0
+        # Mehrdeutig: ein weiterer bewohnter Ort gleichen Namens liegt weit weg.
+        # Im selben Kanton zaehlen schon 5 km (Au ZH gibt es neunmal), sonst
+        # 30 km.  Bis 2026-10-25 wurde nur der Zweitplatzierte verglichen und
+        # nur ab 30 km — Au am Zuerichsee gegen Au bei Kloten (20 km) galt
+        # als eindeutig.
+        best = candidates[0]
+        is_ambiguous = any(
+            (c["population"] or 0) >= 100
+            and _dist_km(best["lat"], best["lon"], c["lat"], c["lon"])
+                > (5.0 if (c["country_code"], c["admin1"]) == (best["country_code"], best["admin1"]) else 30.0)
+            for c in candidates[1:]
+        )
 
         return candidates[0], is_ambiguous
 
@@ -463,6 +489,51 @@ class GeoDatabase:
         menge = {(o[1], o[2]) for k, o in enumerate(orte) if k < 5 or o[0] <= grenze}
         self._lage_cache[key] = menge
         return menge
+
+    def gemeinden_bei(self, lat: float, lon: float, n: int = 5,
+                      max_km: float = 10.0) -> "set[tuple]":
+        """{(Land, Kanton, Gemeinde), …} der n naechsten Orte.
+
+        Fuer die Frage „liegt dieses Gebaeude in der genannten Gemeinde?"
+        (geostack._ausserhalb_gemeinde).  Mehrere Orte statt einem, weil der
+        naechste Ort eines Gebaeudes am Gemeinderand schon im Nachbarort
+        liegen kann — und weil GeoNames die Gemeindenummer nicht immer
+        richtig fuehrt (Weiler bei Kloster Wettingen tragen die Nummer von
+        Neuenhof).  Mit Stadtteilen (PPLX): sonst fand die Klinik Hirslanden
+        nur Zollikon und galt als ausserhalb von Zuerich.
+        """
+        d = max_km / 111.0
+        dlon = d / max(math.cos(math.radians(lat)), 0.01)
+        orte = []
+        for row in self.conn.execute(
+                "SELECT lat, lon, country_code, admin1, admin2, admin3, admin4 FROM geofeature "
+                "WHERE feature_class='P' AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? "
+                "AND feature_code IN ('PPL','PPLA','PPLA2','PPLA3','PPLA4','PPLC','PPLL','PPLX')",
+                (lat - d, lat + d, lon - dlon, lon + dlon)):
+            g = gemeinde_von(row)
+            if g:
+                orte.append((math.hypot(row["lat"] - lat, (row["lon"] - lon) * math.cos(math.radians(lat))) * 111.0, g))
+        orte.sort()
+        return {g for _, g in orte[:n]}
+
+    def ort_der_region_bei(self, lat: float, lon: float, country_code: str, admin1: str,
+                           max_km: float = 25.0) -> bool:
+        """Liegt ein bewohnter Ort dieser Region hoechstens max_km vom Punkt?
+
+        Fuer Punkte, deren naechste Orte in einer anderen Region liegen
+        (geostack._in_region): ein See oder Grenzberg hat immer einen Ufer-
+        oder Talort der Region in der Naehe, ein Treffer in der falschen
+        Region nicht.
+        """
+        d = max_km / 111.0
+        dlon = d / max(math.cos(math.radians(lat)), 0.01)
+        for la, lo in self.conn.execute(
+                "SELECT lat, lon FROM geofeature WHERE feature_class='P' "
+                "AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? AND country_code=? AND admin1=?",
+                (lat - d, lat + d, lon - dlon, lon + dlon, country_code, admin1)):
+            if math.hypot(la - lat, (lo - lon) * math.cos(math.radians(lat))) * 111.0 <= max_km:
+                return True
+        return False
 
     def naechster_ort(self, lat: float, lon: float, country_code: "str | None" = None,
                       admin1: "str | None" = None, max_km: float = 10.0) -> "str | None":

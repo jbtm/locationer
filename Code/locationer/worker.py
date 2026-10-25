@@ -104,7 +104,8 @@ def rechnen(conn, row) -> None:
         a.setze(grenze_chf=row["grenze_chf"])      # Grenze wurde auf der Seite erhoeht
     if a.m.get("versionen") and a.m["versionen"][-1] != version_text():
         _log(a_dir, f"ACHTUNG: bisher gerechnet mit {a.m['versionen'][-1]}, weiter mit {version_text()}")
-    R.aendern(conn, aid, zustand="läuft", grund="", soll="", version=VERSION)
+    R.aendern(conn, aid, zustand="läuft", grund="", soll="", version=VERSION,
+              gestartet=row["gestartet"] or R.jetzt(), beendet=None)
     _log(a_dir, f"Locationer {version_text()} · Start: {WORKERS} Pakete parallel, Grenze {a.m['grenze_chf']:.2f} CHF, "
                 f"bisher {a.kosten_chf():.2f} CHF")
     gebucht = [a.m["usd"]]
@@ -135,12 +136,12 @@ def rechnen(conn, row) -> None:
         _karte(a_dir / "ausgabe.csv")
         _log(a_dir, f"fertig: {f['zeilen']} Zeilen, {f['chf']:.2f} CHF, "
                     f"Zuordnung prüfen: {len(st.get('verdacht', []))} Zeilen")
-        R.aendern(conn, aid, zustand="fertig", grund="", **werte)
+        R.aendern(conn, aid, zustand="fertig", grund="", beendet=R.jetzt(), **werte)
     elif R.holen(conn, aid)["soll"] == "abbrechen":
         if any(a.teile.glob("p*.csv")):
             a.zusammensetzen(teilweise=True)
         _log(a_dir, f"abgebrochen bei {f['erledigt']}/{f['zeilen']}")
-        R.aendern(conn, aid, zustand="abgebrochen", grund="Von Hand abgebrochen", **werte)
+        R.aendern(conn, aid, zustand="abgebrochen", grund="Von Hand abgebrochen", beendet=R.jetzt(), **werte)
     else:
         _log(a_dir, f"angehalten: {r['grund']}")
         R.aendern(conn, aid, zustand="angehalten", grund=r["grund"], **werte)

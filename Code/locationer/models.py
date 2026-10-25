@@ -9,6 +9,7 @@ class NormalizedRecord:
     country: str
     city: str
     location: str = ""     # specific named feature for GeoStack (e.g. "Schloss Vaduz")
+    location_kind: str = ""  # building | street | nature | '' (Phase 1a; geostack._natur)
     region: str = ""       # canton/state/province hint for city disambiguation
     tgn_id: str = ""       # Getty TGN identifier, set by Phase 1c
     tgn_name: str = ""     # TGN canonical name

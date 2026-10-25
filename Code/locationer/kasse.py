@@ -24,10 +24,11 @@ _TEUERSTER = max(PREISE.values(), key=lambda p: p[1])
 USD_CHF = float(os.getenv("USD_CHF", "0.90"))
 
 # Richtwert fuer die Schaetzung VOR dem Lauf, pro Zeile, die noch nicht im
-# Cache ist: Haiku 1a+1b ≈ 0.20 USD/1000, Schritt 2 bis 0.50 USD/1000
-# (gemessen 2026-10-24/25 auf DISCO und ZIN).  Oberer Rand, damit die
-# Schaetzung nicht zu tief liegt.
-USD_PRO_NEUE_ZEILE = float(os.getenv("USD_PRO_NEUE_ZEILE", "0.0007"))
+# Cache ist.  Gemessen 2026-10-25 auf 300 zufaelligen neuen DISCO-Zeilen
+# (v6.0.0): 0.00096 USD — Phase 1a 0.00023, Phase 1b 0.00012, Kandidaten
+# < 0.00003, Schritt 2 (Opus) ≈ 0.0006.  Leicht aufgerundet, damit die
+# Schaetzung nicht zu tief liegt.  (Bis v5.0.1: 0.0007 — zu tief, 1b fehlte.)
+USD_PRO_NEUE_ZEILE = float(os.getenv("USD_PRO_NEUE_ZEILE", "0.0011"))
 
 
 def usd(model: str, usage) -> float:

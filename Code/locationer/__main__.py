@@ -157,6 +157,8 @@ def main():
               f"ihrer Eingabe teilt (oft Uebersetzungen): {v[:30]}{' …' if len(v) > 30 else ''}")
     else:
         print("Zuordnung:                 alle Zeilen passen zu ihrer Eingabe")
+    if st.get("kandidaten_geprueft"):
+        print(f"Kandidaten (Schritt 1.5): {st['kandidaten_geprueft']} geprüft → {st.get('kandidaten_gefunden', 0)} bestätigt")
     if st.get("nachgefasst_kandidaten") is not None and os.getenv("NACHFASSEN", "1") != "0":
         print(f"Nachgefasst (Schritt 2):   {st.get('nachgefasst_kandidaten', 0)} ohne Koordinate → "
               f"{st.get('nachgefasst_bestimmbar', 0)} bestimmbar → {st.get('nachgefasst_gefunden', 0)} gefunden")

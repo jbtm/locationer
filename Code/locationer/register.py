@@ -44,7 +44,10 @@ CREATE TABLE IF NOT EXISTS auftrag (
     schaetzung       TEXT,                     -- JSON aus auftrag.schaetzen
     spalten          TEXT,                     -- Spaltenbericht als Text
     aktualisiert     TEXT,
-    version          TEXT                      -- Locationer-Version des letzten Laufs
+    version          TEXT,                     -- Locationer-Version des letzten Laufs
+    datei            TEXT,                     -- Name der hochgeladenen Datei
+    gestartet        TEXT,                     -- erster Rechenbeginn
+    beendet          TEXT                      -- fertig oder abgebrochen
 );
 CREATE TABLE IF NOT EXISTS ausgaben (
     tag  TEXT PRIMARY KEY,
@@ -64,8 +67,9 @@ def verbinde() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_SCHEMA)
     spalten = {r["name"] for r in conn.execute("PRAGMA table_info(auftrag)")}
-    if "version" not in spalten:          # Register von vor der Versionierung
-        conn.execute("ALTER TABLE auftrag ADD COLUMN version TEXT")
+    for spalte in ("version", "datei", "gestartet", "beendet"):   # aeltere Register
+        if spalte not in spalten:
+            conn.execute(f"ALTER TABLE auftrag ADD COLUMN {spalte} TEXT")
     return conn
 
 

@@ -58,6 +58,7 @@ For each numbered entry, return one JSON object in an array:
   "city":          "<city or town where the photo was taken, see rules — empty string if unknown>",
   "city_source":   "<'text' if the city name appears in the input, 'knowledge' if you added it from the named place (see rules), '' if city is empty>",
   "location":      "<the PROPER NAME of the most specific named place – e.g. 'Schloss Vaduz', 'Montalin Schulhaus', 'Viamala-Schlucht', 'Sagrada Família', 'Hallgrímskirkja' – empty string if only a city, a person, or a generic scene>",
+  "location_kind": "<what `location` is, in any language of the input: 'building' (a building, monument, bridge, square, park, cemetery, station, harbour or quarter inside a town), 'street' (a street, road, railway line or path), 'nature' (a mountain, peak, pass, glacier, valley, gorge, lake, river, waterfall, island, coast, forest or alpine pasture) — empty string if location is empty>",
   "location_type": "<the generic building/place word as it appears in the input text, when location is empty but a recognizable generic feature is present — e.g. 'Bahnhof', 'Kirche', 'église', 'stazione' — null otherwise>",
   "geocoding_queries": ["<1–3 Nominatim search strings for a NAMED location, in the official local language, with the city appended: 'Kathedrale Genève' → ['cathédrale Genève', 'Kathedrale Genf']; NEVER invent a building name not present in the input; when location is empty but location_type and city are set, give the generic word with the correctly spelled city ('stazione', 'Belinzona' → ['stazione Bellinzona']); empty array [] otherwise>"],
   "conflict":      "<one short English sentence if what you know about a named place contradicts the country, region or city stated in the input — e.g. 'Hallgrímskirkja is in Reykjavík, input says Akureyri' — empty string otherwise>"
@@ -232,7 +233,15 @@ _IST_URL = re.compile(r"https?://", re.IGNORECASE)
 # wird nur verrechnet, was gebraucht wird) und der Text aus dem Textblock,
 # nicht aus content[0] — das kann ein Denkblock sein.
 MODEL = "claude-haiku-5-5"
-_MODEL_KW = {"output_config": {"effort": "low"}}
+# medium statt low (2026-10-25): auf 200 Zeilen je zweimal gefragt sprang die
+# Koordinate bei 7 statt 12 Zeilen, ueber 25 km bei 2 statt 5; +24 % Kosten.
+_MODEL_KW = {"output_config": {"effort": "medium"}}
+
+# Fassung von Phase 1a.  Bei JEDER Aenderung an SYSTEM_PROMPT, MODEL oder
+# _MODEL_KW erhoehen: gemerkte Antworten einer anderen Fassung gelten dann als
+# nicht vorhanden und werden neu gefragt (cache.get_norm).  So mischt ein Lauf
+# nie Antworten verschiedener Anweisungen.
+NORM_FASSUNG = "1a-2026-10-25-kind-medium"
 _MAX_TOKENS = 16000
 
 
@@ -428,7 +437,7 @@ class InputNormalizer:
         for i, row in enumerate(rows):
             mapped = {k: _clean(v) for k, v in _map_columns(row, self.extra_desc_cols).items()}
             rk = _raw_key(mapped)
-            cached = self.cache.get_norm(rk)
+            cached = self.cache.get_norm(rk, NORM_FASSUNG)
             if cached:
                 results.append((i, cached))
             elif rk in offen:
@@ -447,7 +456,7 @@ class InputNormalizer:
                 # Eine fehlende Antwort nie cachen: sonst wird die Zeile in
                 # keinem spaeteren Lauf mehr gefragt.
                 if not rec.antwort_fehlt:
-                    self.cache.set_norm(rk, rec)
+                    self.cache.set_norm(rk, rec, NORM_FASSUNG)
                 frisch[rk] = rec
                 results.append((i, rec))
             if self.fortschritt and not self.debug:
@@ -456,7 +465,7 @@ class InputNormalizer:
 
         # Doppelte Zeilen aus dem Cache: je ein eigenes Objekt, weil spaeter
         # pro Zeile weiter veraendert wird (Overrides, Stadt ergaenzen).
-        results += [(i, self.cache.get_norm(rk) or copy.deepcopy(frisch[rk])) for i, rk in doppelt]
+        results += [(i, self.cache.get_norm(rk, NORM_FASSUNG) or copy.deepcopy(frisch[rk])) for i, rk in doppelt]
 
         if self.fortschritt and not self.debug:
             print(f"\r  Phase 1: {total}/{total} done          ")
@@ -479,7 +488,7 @@ class InputNormalizer:
                     # Update cache so future runs see the corrected location
                     if not rec.antwort_fehlt:
                         mapped = {k: _clean(v) for k, v in _map_columns(rows[i], self.extra_desc_cols).items()}
-                        self.cache.set_norm(_raw_key(mapped), rec)
+                        self.cache.set_norm(_raw_key(mapped), rec, NORM_FASSUNG)
 
         # ── Phase 1c: TGN Resolver ───────────────────────────────────────────
         # Fast local lookup — no AI call, no network.
@@ -628,10 +637,14 @@ class InputNormalizer:
             location = _feld(item, "location")
             # If Haiku found no specific location but identified a generic building
             # type, construct a search string: "Railway Station Göschenen"
+            location_kind = _feld(item, "location_kind").lower()
+            if location_kind not in ("building", "street", "nature"):
+                location_kind = ""
             if not location and city:
                 loc_type = _feld(item, "location_type")
                 if loc_type:
                     location = f"{loc_type.title()} {city}"
+                    location_kind = "building"     # Bahnhof, Kirche, église …
             # If still no location, extract from Haiku-enriched title.
             # Haiku sometimes writes the place name into the title but forgets
             # to set it as location (e.g. "Genève, Pont des Bergues, Teilansicht").
@@ -663,6 +676,7 @@ class InputNormalizer:
                     location=location,
                     geocoding_queries=geocoding_queries,
                     image_type=_feld(item, "image_type"),
+                    location_kind=location_kind if location else "",
                     city_source=city_source,
                     conflict=_feld(item, "conflict"),
                     antwort_fehlt=not item,

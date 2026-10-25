@@ -6,7 +6,7 @@ from typing import Optional
 from .cache import Cache
 from .country_db import CountryDB
 from .explicit_store import ExplicitStore
-from .geo_db import GeoDatabase
+from .geo_db import GeoDatabase, gemeinde_von
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
 
@@ -140,6 +140,54 @@ def _is_geo_feature(location: str) -> bool:
         return True
     loc_lower = location.lower()
     return any(sub in loc_lower for sub in _GEO_FEATURE_SUBSTRINGS)
+
+
+# Fuer die Gemeinde-Pruefung zusaetzlich zu _is_geo_feature: Wortendungen,
+# die dort fehlen, weil sie fuer den Radius als zu unsicher galten
+# („Zürichsee", „Oeschinensee", „Saastal", „Schwarzbach", „Schatzalp").  Hier
+# ist der Schaden eines Fehlgriffs klein: ein Gebaeude mit solcher Endung
+# behaelt nur den bisherigen Radius.  Ausnahmen, die Gebaeude sind.
+_GELAENDE_ENDUNGEN = ("see", "bach", "tal", "alp", "alpe", "berg")
+_KEIN_GELAENDE = ("chaussee", "spital", "hospital", "kapital")
+# Was die Quelle selbst ueber das Objekt weiss.  GeoNames: T Gelaende,
+# H Gewaesser, V Wald, U unterseeisch — nicht L (Parks liegen in der Stadt).
+_GELAENDE_KLASSEN = {"T", "H", "V", "U"}
+_GELAENDE_TGN = {
+    "stream", "creek", "valley", "lake", "peak", "reservoir", "mountain",
+    "island", "spring", "hill", "canal", "bay", "ridge", "river", "cape",
+    "forest", "point", "grazing area", "pass", "swamp", "cave", "mountains",
+    "preserve", "intermittent watercourse", "rock", "sand bar", "basin",
+    "wadi", "mountain range", "pond", "beach", "glacier", "waterfall",
+    "gorge", "plateau", "plain", "peninsula", "lagoon", "fjord", "strait",
+}
+
+
+def _gelaende(location: str, art: str = "") -> bool:
+    """Gelaende nach Wortliste — nur noch Rueckfall, siehe _natur()."""
+    if art and (art in _GELAENDE_KLASSEN or art.lower() in _GELAENDE_TGN):
+        return True
+    if _is_geo_feature(location):
+        return True
+    for wort in re.findall(r"\w+", (location or "").lower()):
+        if wort.endswith(_KEIN_GELAENDE):
+            continue
+        if any(wort.endswith(e) and len(wort) >= len(e) + 3 for e in _GELAENDE_ENDUNGEN):
+            return True
+    return False
+
+
+# Die Art des Objekts bestimmt Haiku in Phase 1a (`location_kind`), in jeder
+# Sprache — die Wortlisten oben kennen nur Deutsch, Franzoesisch, Italienisch
+# und Englisch und versagen bei „Jebel", „Dağı" oder „Shan" (DISCO, Dec
+# 2026-10-25).  Die Wortliste gilt nur noch fuer Cache-Eintraege ohne Art.
+_ARTEN = {"building", "street", "nature"}
+
+
+def _natur(record) -> bool:
+    """Berg, Pass, Gewaesser, Tal …: darf weiter weg vom Ort liegen."""
+    if record.location_kind in _ARTEN:
+        return record.location_kind == "nature"
+    return _gelaende(record.location)
 
 
 def _city_radius_km(city_row) -> float:
@@ -300,8 +348,10 @@ class GeoStack:
         Mit `admin1` (GeoNames, Laender-DBs) exakt.  Sonst:
           Land    — mindestens einer der 5 naechsten Orte liegt im Land
                     (geo_db.lage).  Rechteck allein liess den Ortler durch.
-          Region  — einer der 5 naechsten Orte liegt im Kanton, oder der Punkt
-                    liegt im Kantonskreis (Seen ueber mehrere Kantone).
+          Region  — einer der 5 naechsten Orte liegt im Kanton, oder ein Ort
+                    des Kantons liegt hoechstens 25 km weg (Seen ueber mehrere
+                    Kantone).  Den Kantonskreis gibt es nur noch, wo im Umkreis
+                    von 20 km gar kein Ort liegt.
         """
         cc, a1, mitte, radius = region
         if admin1:
@@ -313,9 +363,65 @@ class GeoStack:
             return True
         if lage and (cc, a1) in lage:
             return True
+        if lage:
+            # Die naechsten Orte liegen in einer anderen Region.  Bis
+            # 2026-10-25 genuegte dann der Kantonskreis — bei grossen Regionen
+            # viel zu weit: „Route de Gavarnie" (Occitanie) lag in der
+            # Dordogne noch im Kreis.  Jetzt: ein Ort der Region im Umkreis
+            # von 25 km (Seen, Grenzberge — vom Jungfraugipfel liegt der
+            # naechste Walliser Ort ueber 10 km weit).
+            return self.geo_db.ort_der_region_bei(lat, lon, cc, a1)
         if not mitte or not radius:
             return True
-        return _dist_km(lat, lon, mitte[0], mitte[1]) <= radius
+        return _dist_km(lat, lon, mitte[0], mitte[1]) <= radius   # kein Ort in 20 km
+
+    # ── Gemeinde: ein Gebaeude verlaesst seinen Ort nicht ───────────────────
+    #
+    # „Winterthur, Stadthaus" landete am Stadthaus Zuerich: das Winterthurer
+    # fehlt in den Ortsdatenbanken, das Zuercher lag mit 20 km im Suchkreis
+    # (doppelter Stadtradius = 30 km).  Ebenso „Bahnhofplatz" (2026-10-25).
+    # Fuer Stadthaus, Kirche, Hotel, Platz gilt darum: der Treffer muss in der
+    # Gemeinde des Ortsankers liegen — oder er ist es nicht.
+    #
+    # Gelaende (Berge, Paesse, Schluchten, Seen, Fluesse) bleibt beim grossen
+    # Radius: es liegt oft ausserhalb der Gemeinde.  Was ein Gebaeude ist,
+    # sagt Haiku (`location_kind`) und, wo sie es weiss, die Quelle.
+    #
+    # Massstab: die Gemeinde eines der 5 naechsten GeoNames-Orte des
+    # Treffers — mehrere, weil ein Gebaeude am Gemeinderand naeher beim
+    # Nachbarort liegen kann.  Die Gemeinde steht je Land auf einer anderen
+    # Ebene (geo_db.GEMEINDE_EBENE: CH admin3, FR admin4, NL admin2 …).  Wo sie
+    # fehlt oder der Anker keine hat: einfacher Stadtradius statt des doppelten.
+
+    def _ausserhalb_gemeinde(self, lat, lon, record, city_row, near,
+                             city_radius, art: str = "") -> str:
+        """Grund, warum ein Treffer nicht im Ort liegt — '' wenn er passt.
+
+        Gebunden ist nur ein Gebaeude (`location_kind`).  Kennt die Quelle
+        die Art des Treffers und ist es Gelaende (GeoNames-Klasse, TGN-Typ),
+        gilt das vor Haikus Einschaetzung.  Strassen bleiben frei: eine
+        Passstrasse liegt in vielen Gemeinden.
+        """
+        if not near or not record.location or not self.geo_db:
+            return ""
+        if art and (art in _GELAENDE_KLASSEN or art.lower() in _GELAENDE_TGN):
+            return ""
+        if record.location_kind in _ARTEN:
+            if record.location_kind != "building":
+                return ""
+        elif _gelaende(record.location):
+            return ""
+        dist = _dist_km(lat, lon, near[0], near[1])
+        if dist <= 1.0:
+            return ""
+        anker = gemeinde_von(city_row) if city_row is not None else None
+        if anker:
+            if anker in self.geo_db.gemeinden_bei(lat, lon):
+                return ""
+            return f"nicht in der Gemeinde {city_row['name']} ({dist:.1f} km)"
+        if dist > city_radius:
+            return f"{dist:.1f} km vom Ort > {city_radius:.0f} km"
+        return ""
 
     def geocode(self, record: NormalizedRecord) -> GeoResult:
         region = self._region(record)
@@ -328,6 +434,7 @@ class GeoStack:
         self._pruefe_land_als_stadt(record, region)
         self._pruefe_stadt_aus_wissen(record, region)
         result = self._geocode(record, region)
+        result = self._fluss_ist_kein_punkt(record, region, result)
         result = self._naturobjekt_beim_ort(record, region, result)
         if result.lat is not None and not self._in_region(result.lat, result.lon, region):
             # Letzte Sicherung.  Sollte nie greifen, weil jede Stufe selbst
@@ -355,16 +462,30 @@ class GeoStack:
         Originaltitel („Saas Fee, Feegletscher"), ist es das Motiv und bleibt.
         Ohne Titel greift die Sicherung gar nicht — was ein Titel ist, ist je
         Sammlung verschieden (bei DISCO steht alles im Titel).
+
+        Ausser bei Fluessen und Seen (_gewaesser): deren Punkt ist irgendein
+        Ort am Lauf oder die Seemitte, nicht das Motiv.  „Besançon … le Doubs"
+        lag 84 km flussabwaerts, „Lago di Garda presso Tremosine" in der
+        Seemitte (Google-Vergleich 2026-10-25).  Dort zaehlt der Ort auch dann,
+        wenn das Gewaesser im Titel steht.
         """
-        if not record.input_title or _norm_vergleich(record.location) in _norm_vergleich(record.input_title):
+        if not record.input_title:
+            return result
+        if (_norm_vergleich(record.location) in _norm_vergleich(record.input_title)
+                and not self._gewaesser(record, region)):
             return result
         if (result.lat is None or result.fallback or not record.city
                 or record.city_source != "text" or not record.location
-                or result.source not in ("geo_db", "tgn", "country_db")
+                # Alle Datenbank-Quellen, auch Wikidata und Nominatim (bis
+                # 2026-10-25 nur GeoNames/TGN/Laender-DB): „Giornico,
+                # Ortsteilansicht … der Tessin-Fluss" landete sonst ueber
+                # Wikidata 10 km flussaufwaerts.  Ausgenommen sind nur von
+                # Menschen gesetzte Punkte (Override, Pictomap).
+                or result.source == "override" or result.source.startswith("pictomap")
                 or not self.geo_db):
             return result
         cc, a1 = region[0], region[1]
-        natur = _is_geo_feature(record.location)
+        natur = _natur(record)
         if not natur:
             row = self.geo_db.find_precise(record.location, cc, admin1_hint=a1)
             natur = row is not None and row["feature_class"] in ("T", "H")
@@ -383,6 +504,59 @@ class GeoStack:
             debug_info=result.debug_info + [
                 f"Naturobjekt {result.match_name!r} {dist:.1f} km vom Ort "
                 f"(> {radius:.0f} km) — Ortsmittelpunkt {ort['name']!r}"])
+
+    _FLUSS_CODES = ("STM", "CNL")
+    _FLUSS_TGN = {"stream", "creek", "river", "canal", "intermittent watercourse"}
+
+    def _fluss_ist_kein_punkt(self, record: NormalizedRecord, region,
+                              result: GeoResult) -> GeoResult:
+        """Ein Fluss ist eine Linie: kein Objektpunkt, sondern der genannte Ort.
+
+        GeoNames fuehrt einen Fluss als einen Punkt irgendwo am Lauf (oft die
+        Muendung).  „En barque sur les bassins du Doubs" lag so 128 km von Les
+        Brenets, „Besançon … le Doubs" 84 km flussabwaerts (2026-10-25).
+        Nachfassen und Kandidaten-Pruefung geben Linien schon keinen Punkt;
+        hier dasselbe fuer den Geostack.  Ob es ein Fluss ist, sagt die
+        Quelle (GeoNames-Code STM/CNL, TGN-Typ), nicht der Name.
+        """
+        if (result.lat is None or result.fallback or not record.location or not self.geo_db
+                or result.source == "override" or result.source.startswith("pictomap")):
+            return result
+        fluss = False
+        if record.tgn_id and self.tgn_db:
+            t = self.tgn_db.get_by_id(record.tgn_id)
+            fluss = t is not None and (t["place_type"] or "").lower() in self._FLUSS_TGN
+        if not fluss:
+            row = self.geo_db.find_precise(record.location, region[0], admin1_hint=region[1])
+            fluss = (row is not None and row["feature_class"] == "H"
+                     and (row["feature_code"] or "").startswith(self._FLUSS_CODES)
+                     and _dist_km(row["lat"], row["lon"], result.lat, result.lon) < 1.0)
+        if not fluss:
+            return result
+        dbg = result.debug_info + [f"Fluss {result.match_name!r}: Linie, kein Punkt"]
+        ort = self.geo_db.find_city(record.city, region[0], region[1])[0] if record.city else None
+        if ort is not None and self._in_region(ort["lat"], ort["lon"], region, ort["admin1"]):
+            return GeoResult(lat=ort["lat"], lon=ort["lon"], quality_score=3, fallback=True,
+                             source="geo_db", match_name=ort["name"],
+                             debug_info=dbg + [f"Ortsmittelpunkt {ort['name']!r}"])
+        return GeoResult(debug_info=dbg + ["kein Ort genannt — keine Koordinate"])
+
+    _GEWAESSER_CODES = ("STM", "LK", "RSV", "CNL", "LGN", "BAY", "SEA", "OCN")
+    _GEWAESSER_TGN = {"stream", "creek", "river", "lake", "reservoir", "canal", "lagoon", "bay",
+                      "intermittent watercourse", "sea", "ocean", "pond"}
+
+    def _gewaesser(self, record: NormalizedRecord, region) -> bool:
+        """Ist das Objekt ein Fluss, See, Kanal oder Meer — laut Quelle, nicht laut Name?"""
+        if record.tgn_id and self.tgn_db:
+            t = self.tgn_db.get_by_id(record.tgn_id)
+            if t is not None and (t["place_type"] or "").lower() in self._GEWAESSER_TGN:
+                return True
+        if self.geo_db and record.location:
+            row = self.geo_db.find_precise(record.location, region[0], admin1_hint=region[1])
+            if row is not None and row["feature_class"] == "H" \
+                    and (row["feature_code"] or "").startswith(self._GEWAESSER_CODES):
+                return True
+        return False
 
     def _pruefe_land_als_stadt(self, record: NormalizedRecord, region) -> None:
         """Steht das Land als Stadt da, gilt es nur bei einem echten Ort.
@@ -436,7 +610,8 @@ class GeoStack:
         # „Kirche|Münster|Schweiz" in VS das Ergebnis aus GR (oder dessen
         # Fehlschlag).  Aufgeloester admin1-Code, damit „Kanton Graubünden"
         # und „Graubünden" denselben Eintrag treffen.
-        cache_key = f"{hint}|{record.city}|{record.country}|{region[1] or ''}"
+        # Art des Objekts ebenfalls: sie entscheidet ueber Radius und Gemeinde.
+        cache_key = f"{hint}|{record.city}|{record.country}|{region[1] or ''}|{record.location_kind}"
 
         # ── Step 0: manual overrides ─────────────────────────────────────────
         if self.overrides:
@@ -491,7 +666,7 @@ class GeoStack:
                 city_row_c, _ = self.geo_db.find_city(lookup, cc) if lookup else (None, False)
                 if city_row_c:
                     dist = _dist_km(cached.lat, cached.lon, city_row_c["lat"], city_row_c["lon"])
-                    geo_feat_c = _is_geo_feature(record.location or "")
+                    geo_feat_c = bool(record.location) and _natur(record)
                     base_r = _city_radius_km(city_row_c)
                     prox_ok = dist <= max(base_r * (6 if geo_feat_c else 2), 15 if geo_feat_c else 5)
             if bbox_ok and prox_ok:
@@ -529,7 +704,7 @@ class GeoStack:
         city_row, city_ambiguous = self.geo_db.find_city(record.city, country_code, admin1_hint) if (self.geo_db and record.city) else (None, False)
         near = (city_row["lat"], city_row["lon"]) if city_row else None
         city_radius = _city_radius_km(city_row)  # dynamic threshold based on city size
-        geo_feature = _is_geo_feature(record.location)  # gorges/passes/peaks need bigger radius
+        geo_feature = bool(record.location) and _natur(record)  # gorges/passes/peaks need bigger radius
 
         # If city not found as populated place, try as geographic feature (mountain,
         # lake, pass, etc.) — gives proximity anchor for cases like "Pilatus", "Rigi"
@@ -630,6 +805,10 @@ class GeoStack:
                     dbg.append(f"GEO DB precise {row['name']!r} rejected (outside collection bbox)")
                 elif row and not self._in_region(row["lat"], row["lon"], region, row["admin1"]):
                     dbg.append(f"GEO DB precise {row['name']!r} rejected (region {row['admin1']} ≠ {admin1_hint})")
+                elif row and (grund := self._ausserhalb_gemeinde(row["lat"], row["lon"], record,
+                                                                 city_row, near, city_radius,
+                                                                 row["feature_class"])):
+                    dbg.append(f"GEO DB precise {row['name']!r} rejected ({grund})")
                 elif row:
                     result = GeoResult(
                         lat=row["lat"], lon=row["lon"], quality_score=5,
@@ -671,6 +850,11 @@ class GeoStack:
                 if tgn_ok and not self._in_region(tgn_lat, tgn_lon, region):
                     dbg.append(f"TGN {tgn_row['pref_name']!r} rejected (outside region {admin1_hint})")
                     tgn_ok = False
+                if tgn_ok and (grund := self._ausserhalb_gemeinde(tgn_lat, tgn_lon, record,
+                                                                  city_row, near, city_radius,
+                                                                  tgn_row["place_type"] or "")):
+                    dbg.append(f"TGN {tgn_row['pref_name']!r} rejected ({grund})")
+                    tgn_ok = False
                 if tgn_ok:
                     result = GeoResult(
                         lat=tgn_lat, lon=tgn_lon, quality_score=5,
@@ -691,6 +875,10 @@ class GeoStack:
                                     admin1_hint=admin1_hint)
             if crow and not self._in_region(crow["lat"], crow["lon"], region, crow["admin1"]):
                 dbg.append(f"country_db precise {crow['canonical_name']!r} rejected (region {crow['admin1']} ≠ {admin1_hint})")
+                crow = None
+            if crow and (grund := self._ausserhalb_gemeinde(crow["lat"], crow["lon"], record,
+                                                            city_row, near, city_radius)):
+                dbg.append(f"country_db precise {crow['canonical_name']!r} rejected ({grund})")
                 crow = None
             if crow:
                 result = GeoResult(
@@ -772,6 +960,11 @@ class GeoStack:
                 wd = self.wikidata.finde(record.location, record.city or "",
                                          near=anker, max_dist_km=anker_r,
                                          lang=_wikidata_lang(country_code))
+                if wd and (grund := self._ausserhalb_gemeinde(wd["lat"], wd["lon"], record,
+                                                              city_row, near, city_radius)):
+                    # Gleich hier, damit Nominatim noch zum Zug kommt.
+                    dbg.append(f"Wikidata {wd['name']!r} rejected ({grund})")
+                    wd = None
                 if wd:
                     self.wd_count += 1
                     ext_result = {"lat": wd["lat"], "lon": wd["lon"],
@@ -870,6 +1063,11 @@ class GeoStack:
             if ext_result and not self._in_region(ext_result["lat"], ext_result["lon"], region):
                 dbg.append(f"{quelle} precise {ext_result['name']!r} rejected "
                            f"(ausserhalb Land {country_code} / Region {admin1_hint or '—'})")
+                ext_result = None
+            if ext_result and (grund := self._ausserhalb_gemeinde(ext_result["lat"], ext_result["lon"],
+                                                                  record, city_row, near,
+                                                                  city_radius)):
+                dbg.append(f"{quelle} precise {ext_result['name']!r} rejected ({grund})")
                 ext_result = None
             if ext_result:
                 result = GeoResult(

@@ -56,6 +56,7 @@ Land ein eigenes Einpflegeprojekt zu verlangen.
 """
 
 import hashlib
+import json
 import math
 import threading
 import time
@@ -67,12 +68,14 @@ SEARCH_URL = "https://www.wikidata.org/w/api.php"
 # Wikimedia verlangt in der Nutzungsrichtlinie eine erreichbare Kontaktadresse.
 # Kennungen ohne Kontakt werden frueher gedrosselt — und ein Betreiber, der ein
 # Problem sieht, kann sich melden, statt einfach zu sperren.
-HEADERS = {"User-Agent": "Locationer/4.0 (https://pictomap.ch; meyer@locomot.ch) python-requests"}
+HEADERS = {"User-Agent": "Locationer/6.0 (https://pictomap.ch; https://locomot.ch) python-requests"}
 
 # Wie viele Namenstreffer geholt und auf Koordinaten geprüft werden.  Mehr als
 # eine Handvoll bringt nichts: die Such-API sortiert bereits nach Relevanz, und
 # jeder weitere Treffer kostet nur beim Koordinaten-Nachschlagen.
 SEARCH_LIMIT = 7
+# Kandidaten fuer die Pruefung durch das Modell (kandidaten.py).
+KANDIDATEN_LIMIT = 8
 
 # Wikimedia weist zu dichte Abfragen mit HTTP 429 ab.  Ein Abstand von einer
 # halben Sekunde bleibt klar im Rahmen fairer Nutzung; der Zwischenspeicher
@@ -113,6 +116,13 @@ class Wikidata:
                 lat          REAL,
                 lon          REAL,
                 label        TEXT,
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.cache_conn.execute("""
+            CREATE TABLE IF NOT EXISTS wikidata_kandidaten (
+                key          TEXT PRIMARY KEY,
+                liste        TEXT NOT NULL,
                 created_at   TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -241,6 +251,79 @@ class Wikidata:
         if not kandidaten:
             return None
         return min(kandidaten, key=lambda t: t["dist_km"])
+
+    def kandidaten(self, text: str, near=None, max_dist_km: float = 0.0,
+                   lang: str = "de") -> "tuple[list[dict], bool]":
+        """Mehrere moegliche Objekte zu einem Namen — fuer die Kandidaten-Pruefung.
+
+        Anders als search(): Volltextsuche (CirrusSearch) statt Namensanfang,
+        nur Objekte mit Koordinate, auf Wunsch im Umkreis — und bei leerem
+        Ergebnis noch einmal unscharf („Refugio~" findet „Rifugio").  Welcher
+        Kandidat gemeint ist, entscheidet nicht diese Suche, sondern das Modell
+        anhand von Bezeichnung und Beschreibung (kandidaten.py).
+
+        → ([{qid, label, beschreibung, lat, lon}], fehler).  Ein Fehler wird
+        nicht gemerkt (siehe oben: ein Fehler ist kein „nichts gefunden").
+        """
+        text = " ".join(text.split())
+        if len(text) < 3:
+            return [], False
+        anker = f" nearcoord:{max(1, round(max_dist_km))}km,{near[0]:.4f},{near[1]:.4f}" if near and max_dist_km else ""
+        k = hashlib.sha256(f"kand2|{lang}|{anker}|{text.lower()}".encode()).hexdigest()[:20]
+        row = self.cache_conn.execute("SELECT liste FROM wikidata_kandidaten WHERE key=?", (k,)).fetchone()
+        if row is not None:
+            return json.loads(row[0]), False
+
+        # Genau UND unscharf, abwechselnd zusammengefuehrt: die genaue Suche
+        # findet korrekt Geschriebenes zuverlaessig, die unscharfe Tippfehler
+        # und Schreibvarianten („Refugio" → Rifugio).  Nur die unscharfe zu
+        # fragen, wenn die genaue leer bleibt, reichte nicht: „Refugio di
+        # Torino" fand genau gesucht drei Gemeinden mit „Torino" — die Huette
+        # nur unscharf.
+        unscharf = " ".join(w + "~" if len(w) >= 4 and w.isalpha() else w for w in text.split())
+        listen = []
+        for q in dict.fromkeys([text, unscharf]):
+            j, fehler = self._abfrage({"action": "query", "list": "search", "format": "json",
+                                       "srsearch": f"{q} haswbstatement:P625{anker}",
+                                       "srlimit": KANDIDATEN_LIMIT, "srprop": ""})
+            if fehler:
+                return [], True
+            listen.append([x["title"] for x in (j or {}).get("query", {}).get("search", [])
+                           if x.get("title", "").startswith("Q")])
+        qids = []
+        for paar in zip(*[l + [None] * (KANDIDATEN_LIMIT - len(l)) for l in listen]):
+            for q in paar:
+                if q and q not in qids:
+                    qids.append(q)
+        qids = qids[:KANDIDATEN_LIMIT + 2]
+        liste = []
+        if qids:
+            sprachen = "|".join(dict.fromkeys([lang, "en"]))
+            j, fehler = self._abfrage({"action": "wbgetentities", "ids": "|".join(qids),
+                                       "props": "labels|descriptions|claims", "languages": sprachen,
+                                       "format": "json"})
+            if fehler:
+                return [], True
+            ents = (j or {}).get("entities") or {}
+            for qid in qids:                       # Reihenfolge der Suche = Relevanz
+                ent = ents.get(qid) or {}
+                koord = None
+                for c in (ent.get("claims") or {}).get("P625", []):
+                    v = (c.get("mainsnak") or {}).get("datavalue", {}).get("value") or {}
+                    if "latitude" in v:
+                        koord = (v["latitude"], v["longitude"]); break
+                if koord is None:
+                    continue
+
+                def _in(feld):
+                    d = ent.get(feld) or {}
+                    return (d.get(lang) or d.get("en") or {}).get("value", "")
+                liste.append({"qid": qid, "label": _in("labels"), "beschreibung": _in("descriptions"),
+                              "lat": koord[0], "lon": koord[1]})
+        self.cache_conn.execute("INSERT OR REPLACE INTO wikidata_kandidaten (key, liste) VALUES (?, ?)",
+                                (k, json.dumps(liste, ensure_ascii=False)))
+        self.cache_conn.commit()
+        return liste, False
 
     def _abfrage(self, params):
         """Ein Aufruf mit Drosselung und Wiederholung.
