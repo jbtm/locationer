@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import html
 import json
@@ -115,11 +116,16 @@ def _map_columns(row: dict, extra_desc_cols: list[str] | None = None) -> dict[st
     low = {str(k).lower().strip(): v for k, v in row.items()}
     out = {f: "" for f in COLUMN_MAP}
     for field, aliases in COLUMN_MAP.items():
+        # Erste NICHT LEERE Spalte.  Bis 2026-10-25 galt die erste vorhandene,
+        # auch wenn sie leer war: Zeilen mit „title" leer und „titre" gefuellt
+        # (gemischte Zeilen ueber die API) blieben ohne Titel.
         for alias in aliases:
             if alias in low:
                 v = low[alias]
-                out[field] = "" if v is None or (isinstance(v, float) and v != v) else str(v).strip()
-                break
+                v = "" if v is None or (isinstance(v, float) and v != v) else str(v).strip()
+                if v:
+                    out[field] = v
+                    break
     # Append extra columns to description so Phase 1a Haiku sees them
     if extra_desc_cols:
         extras = []
@@ -320,6 +326,12 @@ def _verrutscht(data: "list | None", batch: list) -> bool:
     return len(batch) > 1 and _ordne(data, len(batch)) is None
 
 
+def _feld(item: dict, key: str, ersatz: str = "") -> str:
+    """Textfeld aus einer Modellantwort.  `null` ist leer, nicht „None"."""
+    v = item.get(key)
+    return ersatz if v is None else str(v).strip()
+
+
 def _meta_raw_key(row: dict) -> str:
     """Cache key for metadata extraction: hash of all non-null raw text values.
 
@@ -339,7 +351,7 @@ class InputNormalizer:
     BATCH_SIZE = 20
 
     def __init__(self, cache: Cache, debug: bool = False, tgn_db=None, geo_db=None,
-                 extra_desc_cols: list[str] | None = None):
+                 extra_desc_cols: list[str] | None = None, kasse=None):
         self.cache = cache
         self.debug = debug
         self.tgn_db = tgn_db
@@ -347,6 +359,8 @@ class InputNormalizer:
         self.extra_desc_cols = extra_desc_cols or []  # extra cols merged into description
         self.haiku_count = 0
         self._client: Optional[anthropic.Anthropic] = None
+        self.kasse = kasse          # kasse.py: jede Antwort wird gebucht
+        self.fortschritt = True     # „Phase 1: 12/20" — aus, wenn Pakete parallel laufen
 
     @property
     def client(self) -> anthropic.Anthropic:
@@ -382,7 +396,12 @@ class InputNormalizer:
 
             def aufruf():
                 try:
-                    ergebnis["ok"] = self.client.messages.create(**kwargs)
+                    r = self.client.messages.create(**kwargs)
+                    # Hier buchen, nicht nach join(): auch eine Antwort, die
+                    # nach Ablauf der Frist noch eintrifft, ist bezahlt.
+                    if self.kasse is not None:
+                        self.kasse.buche(kwargs.get("model", ""), getattr(r, "usage", None))
+                    ergebnis["ok"] = r
                 except Exception as e:      # im Hauptthread neu werfen
                     ergebnis["fehler"] = e
 
@@ -403,6 +422,7 @@ class InputNormalizer:
         results: list[tuple[int, NormalizedRecord]] = []
         pending: list[tuple[int, str, dict[str, str]]] = []
         doppelt: list[tuple[int, str]] = []   # gleiche Zeile schon in pending
+        frisch: dict[str, NormalizedRecord] = {}
 
         offen: set[str] = set()
         for i, row in enumerate(rows):
@@ -417,24 +437,28 @@ class InputNormalizer:
                 offen.add(rk)
                 pending.append((i, rk, mapped))
 
-        if not self.debug and pending:
+        if self.fortschritt and not self.debug and pending:
             print(f"\r  Phase 1: {total - len(pending)}/{total} (cache hits)", end="", flush=True)
 
         for start in range(0, len(pending), self.BATCH_SIZE):
             batch = pending[start : start + self.BATCH_SIZE]
             ai_records = self._call_ai(batch)
             for (i, rk, _), rec in zip(batch, ai_records):
-                self.cache.set_norm(rk, rec)
+                # Eine fehlende Antwort nie cachen: sonst wird die Zeile in
+                # keinem spaeteren Lauf mehr gefragt.
+                if not rec.antwort_fehlt:
+                    self.cache.set_norm(rk, rec)
+                frisch[rk] = rec
                 results.append((i, rec))
-            if not self.debug:
+            if self.fortschritt and not self.debug:
                 done = total - len(pending) + start + len(batch)
                 print(f"\r  Phase 1: {done}/{total}", end="", flush=True)
 
         # Doppelte Zeilen aus dem Cache: je ein eigenes Objekt, weil spaeter
         # pro Zeile weiter veraendert wird (Overrides, Stadt ergaenzen).
-        results += [(i, self.cache.get_norm(rk)) for i, rk in doppelt]
+        results += [(i, self.cache.get_norm(rk) or copy.deepcopy(frisch[rk])) for i, rk in doppelt]
 
-        if not self.debug:
+        if self.fortschritt and not self.debug:
             print(f"\r  Phase 1: {total}/{total} done          ")
 
         results.sort(key=lambda x: x[0])
@@ -453,14 +477,15 @@ class InputNormalizer:
                 if extracted:
                     rec.location = extracted
                     # Update cache so future runs see the corrected location
-                    mapped = {k: _clean(v) for k, v in _map_columns(rows[i], self.extra_desc_cols).items()}
-                    self.cache.set_norm(_raw_key(mapped), rec)
+                    if not rec.antwort_fehlt:
+                        mapped = {k: _clean(v) for k, v in _map_columns(rows[i], self.extra_desc_cols).items()}
+                        self.cache.set_norm(_raw_key(mapped), rec)
 
         # ── Phase 1c: TGN Resolver ───────────────────────────────────────────
         # Fast local lookup — no AI call, no network.
         # Adds tgn_id + tgn_name to each record for use in Phase 2 Step 2.5.
         if self.tgn_db:
-            if not self.debug:
+            if self.fortschritt and not self.debug:
                 print(f"\r  Phase 1c: TGN lookup…", end="", flush=True)
             hits = 0
             for rec in normalized:
@@ -474,7 +499,7 @@ class InputNormalizer:
                         rec.tgn_id   = row["tgn_id"]
                         rec.tgn_name = row["pref_name"] or rec.location
                         hits += 1
-            if not self.debug:
+            if self.fortschritt and not self.debug:
                 print(f"\r  Phase 1c: {hits}/{total} TGN hits          ")
 
         return normalized
@@ -484,6 +509,7 @@ class InputNormalizer:
         results: list[tuple[int, dict]] = []
         pending: list[tuple[int, str, dict]] = []
         doppelt: list[tuple[int, str]] = []
+        frisch: dict[str, dict] = {}
 
         offen: set[str] = set()
         for i, row in enumerate(rows):
@@ -498,22 +524,24 @@ class InputNormalizer:
                 pending.append((i, rk, row))
 
         total_meta = len(rows)
-        if not self.debug and pending:
+        if self.fortschritt and not self.debug and pending:
             print(f"\r  Phase 1b: {total_meta - len(pending)}/{total_meta} (cache hits)", end="", flush=True)
 
         for start in range(0, len(pending), self.BATCH_SIZE):
             batch = pending[start : start + self.BATCH_SIZE]
             meta_results = self._call_meta_ai(batch)
             for (i, rk, _), meta in zip(batch, meta_results):
-                self.cache.set_meta(rk, meta)
+                if not meta.pop("_fehlt", False):      # fehlende Antwort nicht cachen
+                    self.cache.set_meta(rk, meta)
+                frisch[rk] = meta
                 results.append((i, meta))
-            if not self.debug:
+            if self.fortschritt and not self.debug:
                 done = total_meta - len(pending) + start + len(batch)
                 print(f"\r  Phase 1b: {done}/{total_meta}", end="", flush=True)
 
-        results += [(i, self.cache.get_meta(rk)) for i, rk in doppelt]
+        results += [(i, self.cache.get_meta(rk) or dict(frisch[rk])) for i, rk in doppelt]
 
-        if not self.debug:
+        if self.fortschritt and not self.debug:
             print(f"\r  Phase 1b: {total_meta}/{total_meta} done          ")
 
         results.sort(key=lambda x: x[0])
@@ -545,14 +573,12 @@ class InputNormalizer:
             return self._call_meta_ai(batch[:mitte]) + self._call_meta_ai(batch[mitte:])
         data = geordnet or data or []
 
-        return [
-            {
-                "periode": (data[k] if k < len(data) else {}).get("periode"),
-                "urheber": (data[k] if k < len(data) else {}).get("urheber"),
-                "technik": (data[k] if k < len(data) else {}).get("technik"),
-            }
-            for k in range(len(batch))
-        ]
+        out = []
+        for k in range(len(batch)):
+            item = data[k] if k < len(data) and isinstance(data[k], dict) else {}
+            out.append({"periode": item.get("periode"), "urheber": item.get("urheber"),
+                        "technik": item.get("technik"), "_fehlt": not item})
+        return out
 
     def _call_ai(self, batch: list[tuple[int, str, dict[str, str]]]) -> list[NormalizedRecord]:
         lines = []
@@ -583,12 +609,12 @@ class InputNormalizer:
 
         records = []
         for k, (_, _, mapped) in enumerate(batch):
-            item = data[k] if k < len(data) else {}
-            ai_city    = str(item.get("city", "")).strip()
+            item = data[k] if k < len(data) and isinstance(data[k], dict) else {}
+            ai_city    = _feld(item, "city")
             input_city = str(mapped.get("city", "")).strip()
             # If AI city has no substring relation to the input value, the AI likely
             # corrupted it (e.g. "Luzern" → "Lzern"). Fall back to the original.
-            city_source = str(item.get("city_source") or "").strip()
+            city_source = _feld(item, "city_source")
             if (input_city and ai_city
                     and input_city.lower() not in ai_city.lower()
                     and ai_city.lower() not in input_city.lower()):
@@ -599,22 +625,22 @@ class InputNormalizer:
                 city_source = "text"     # Eingabespalte, nie Wissen
             if not city:
                 city_source = ""
-            location = str(item.get("location", ""))
+            location = _feld(item, "location")
             # If Haiku found no specific location but identified a generic building
             # type, construct a search string: "Railway Station Göschenen"
             if not location and city:
-                loc_type = (item.get("location_type") or "").strip()
+                loc_type = _feld(item, "location_type")
                 if loc_type:
                     location = f"{loc_type.title()} {city}"
             # If still no location, extract from Haiku-enriched title.
             # Haiku sometimes writes the place name into the title but forgets
             # to set it as location (e.g. "Genève, Pont des Bergues, Teilansicht").
             if not location and city:
-                ai_title = str(item.get("title", "")).strip()
+                ai_title = _feld(item, "title")
                 location = _extract_location_from_title(ai_title, city)
             # Region priority: input column > Haiku extraction.
             # If the input CSV has a canton/region column, it is authoritative.
-            ai_region = str(item.get("region", "")).strip()
+            ai_region = _feld(item, "region")
             input_region = mapped.get("region", "").strip()
             region = input_region if input_region else ai_region
 
@@ -629,16 +655,17 @@ class InputNormalizer:
 
             records.append(
                 NormalizedRecord(
-                    title=str(item.get("title", mapped.get("title", "")))[:60],
+                    title=_feld(item, "title", mapped.get("title", ""))[:60],
                     description=mapped.get("description", ""),
-                    country=str(item.get("country", mapped.get("country", ""))),
+                    country=_feld(item, "country", mapped.get("country", "")),
                     region=region,
                     city=city,
                     location=location,
                     geocoding_queries=geocoding_queries,
-                    image_type=str(item.get("image_type") or "").strip(),
+                    image_type=_feld(item, "image_type"),
                     city_source=city_source,
-                    conflict=str(item.get("conflict") or "").strip(),
+                    conflict=_feld(item, "conflict"),
+                    antwort_fehlt=not item,
                 )
             )
         return records

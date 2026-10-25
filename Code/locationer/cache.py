@@ -11,10 +11,23 @@ def _key(text: str) -> str:
     return hashlib.sha256(text.lower().strip().encode()).hexdigest()[:20]
 
 
+def verbinde(path: str) -> sqlite3.Connection:
+    """Cache-Verbindung, die parallele Pakete aushaelt.
+
+    Jedes parallele Paket hat eine eigene Verbindung auf dieselbe Datei.  WAL
+    laesst Lesen waehrend eines Schreibens zu; die Wartezeit faengt kurze
+    Schreibsperren ab, statt mit „database is locked" abzubrechen.
+    """
+    conn = sqlite3.connect(path, timeout=60)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=60000")
+    return conn
+
+
 class Cache:
     def __init__(self, path: str = "cache/locationer.sqlite"):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(path)
+        self.conn = verbinde(path)
         self._init()
 
     def _init(self):

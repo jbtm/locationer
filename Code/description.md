@@ -54,9 +54,21 @@ caffeinate -i venv/bin/python -m locationer ../ZIN_complete_allFields.csv \
 `caffeinate -i` verhindert den Ruhezustand — ein ZIN-Lauf dauert Stunden.
 Eingabe und Ausgabe liegen eine Ebene hoeher, daher `../`.
 
-**Bricht der Lauf ab, setzt derselbe Befehl an der Abbruchstelle an** (Chunks à
-20 Zeilen, `--chunk-size` aendert das). Wer einen Lauf NEU rechnen will, muss die
-Ausgabedatei vorher wegraeumen oder einen anderen `--output`-Pfad nehmen.
+**Jeder Lauf ist ein Auftrag** mit eigenem Verzeichnis `<ausgabe>.auftrag/` neben
+der Ausgabe (Kopie der Eingabe, `auftrag.json`, Teildateien je Paket à 20 Zeilen).
+**Bricht der Lauf ab, setzt derselbe Befehl genau diesen Auftrag fort** — nach
+Pruefung, dass die Eingabe dieselbe ist und jede Teildatei Zeile fuer Zeile zu
+ihr passt. Eine Ausgabedatei ohne Auftrag wird nie ueberschrieben. Wer NEU rechnen
+will, nimmt einen anderen `--output`-Pfad.
+
+- `--workers 6` (Vorgabe): so viele Pakete gleichzeitig; `--mode debug` immer 1.
+- `--grenze-chf 20` (Vorgabe aus `LOCATIONER_GRENZE_CHF`): Kostengrenze des
+  Auftrags. Vor dem Start wird geschaetzt; liegt die Schaetzung darueber, startet
+  nichts. Waehrend des Laufs haelt der Auftrag an, sobald die Kosten die Grenze
+  erreichen oder die Hochrechnung (ab 1000 Zeilen) darueber liegt. Fortsetzen mit
+  demselben Befehl und hoeherem `--grenze-chf`.
+- Die Rauchprobe mit `locationer/TestFile.csv` (ohne `--output`) faengt immer neu
+  an — sie soll den aktuellen Code messen.
 
 ### Einzelnen Fall anschauen
 
@@ -1411,8 +1423,84 @@ Vertauschung.
 
 **Fortsetzen abgesichert** — siehe Abschnitt Auto-Resume.
 
-**Bekannte Lücke (offen):** Alternativnamen mit Akzent werden in GeoNames nie
-gefunden. `alt_name_norm` behält die Akzente („castellón de la plana"), die
-Suche fragt nur ASCII-Formen („castellon de la plana"). Betroffen sind rund
-530000 von 3 Mio. Alternativnamen; „Espagne, Castellón de la Plana" blieb so
-ohne Koordinate.
+**Akzent-Lücke geschlossen (2026-10-25):** Alternativnamen mit Akzent wurden in
+GeoNames nie gefunden — `alt_name_norm` behält die Akzente („castellón de la
+plana"), die Suche fragte nur ASCII-Formen. Rund 530000 von 3 Mio.
+Alternativnamen waren so unerreichbar (Bâle, Gênes, Séville, Pékin, Castellón).
+`_ascii_norm_variants` fragt jetzt zusätzlich die Form mit Akzent und die Form mit
+Apostroph als Leerzeichen. Kontrolle ohne Rückschritt (DISCO 313/306, ZIN 478/473).
+
+### Nachtrag 2026-10-25 (v5.0.0): Server-Betrieb, Parallelität, Kostengrenze
+
+**Aufteilung des Codes.** `pipeline.py` enthält die Verarbeitung eines Pakets
+(vorher `__main__.py`) und `Umgebung` — alle Datenbanken und Dienste für genau
+einen Thread. `auftrag.py` rechnet einen Auftrag, `__main__.py` ist nur noch das
+Terminal, `worker.py` und `web.py` sind der Server-Betrieb, `register.py` die
+Auftragsliste, `kasse.py` die Kostenkasse.
+
+**Auftrag (auftrag.py).** Eigenes Verzeichnis, Kopie der Eingabe mit
+Fingerabdruck (SHA-256), Teildatei je Paket, atomar geschrieben (erst
+vollständig, dann umbenannt). Fortsetzen prüft Fingerabdruck, Spalten und jede
+Teildatei Zeile für Zeile gegen die Eingabe; jede Abweichung bricht ab.
+Gerechnet werden genau die fehlenden Pakete. `ausgabe.csv` entsteht am Schluss,
+Paket für Paket gestreamt, mit Zählprobe. Getestet: harter Abbruch (kill -9)
+mitten im Lauf → keine halbe Datei, Fortsetzen rechnet nur den Rest; geänderte
+Zelle in einer Teildatei → Abbruch mit Stelle; andere Eingabe auf bestehendem
+Auftrag → Abbruch; vorhandene Ausgabe ohne Auftrag → wird nicht überschrieben.
+
+**Parallelität.** Mehrere Pakete gleichzeitig, jedes mit eigener `Umgebung`
+(eigene SQLite-Verbindungen; Cache im WAL-Modus mit Wartezeit). Gemeinsam sind
+nur die Kasse und der Takt von Nominatim und Wikidata (prozessweit 1 Anfrage/s).
+Kontrolle: ZIN 1 mit 6 parallel = seriell, alle 500 Zeilen in allen Spalten gleich.
+
+**Kostengrenze (kasse.py).** Gebucht wird die `usage` jeder Antwort, auch einer,
+die nach Ablauf der Frist noch eintrifft. Unbekanntes Modell = Opus-Preis.
+Angehalten wird vor dem Start (Schätzung), ab 1000 Zeilen (Hochrechnung) und
+sobald die Kosten die Grenze erreichen; dazu eine Tagesgrenze über alle
+Aufträge (auf der Seite einstellbar). Der Stand wird höchstens alle 5 s
+gesichert, auch mitten im Paket. Überschreitung höchstens um die gerade
+laufenden Pakete (6 × 20 Zeilen, Rappenbeträge).
+
+**Server (tools.cronica.ch/locationer).** Zwei Dienste: `locationer-web`
+(gunicorn, Port 5006) und `locationer-worker`. Ein Neustart des Arbeiters setzt
+den laufenden Auftrag fort; vorübergehende Störungen (Netz, Überlastung) werden
+nach 5 Minuten bis zu 6-mal neu versucht. Dateien in `server/`.
+Zustände eines Auftrags: prüfen → bereit → wartet → läuft → fertig, dazu
+angehalten / abgebrochen / fehler. Angehaltene und fehlerhafte Aufträge stehen
+rot oben auf der Seite, der Tab-Titel zeigt „⏸".
+
+**API** (Schlüssel im Kopf `Authorization: Bearer …`):
+
+| Aufruf | Wozu |
+|---|---|
+| `POST api/auftraege` | Datei (`datei`) oder JSON `{"zeilen": […]}`; Pflicht `grenze_chf`; optional `name`, `bbox`, `starten=1` |
+| `GET api/auftraege`, `GET api/auftraege/{id}` | Liste, Zustand, Fortschritt, Kosten, Hochrechnung, Protokoll |
+| `POST api/auftraege/{id}/starten` · `/weiter` · `/anhalten` · `/abbrechen` | Steuerung; `weiter` nur mit Grenze über den bisherigen Kosten |
+| `GET api/auftraege/{id}/ergebnis` | CSV; `?format=json`; `?teilweise=1` für die fertigen Pakete |
+| `POST api/orte` | bis 50 Zeilen sofort, z. B. ein Bild aus Pictomap |
+| `GET api/status` · `POST api/tagesgrenze` | heutige Kosten, Tagesgrenze, Version |
+
+**Fehler im bestehenden Code, bei der Durchsicht gefunden und behoben:**
+- Fehlte die Antwort des Modells für eine Zeile, wurde der leere Datensatz
+  gecacht — die Zeile wäre nie mehr gefragt worden (Phase 1a, 1b und Schritt 2).
+- Ein `null` des Modells wurde zum Text „None" — als Land hiess das „unbekanntes
+  Land, keine Koordinate".
+- Von mehreren möglichen Titelspalten galt die erste vorhandene, auch wenn sie
+  leer war; jetzt die erste gefüllte.
+
+---
+
+## Versionen
+
+Regel: MAJOR = Ergebnisse ändern sich grundlegend (Modell, Pipeline-Schritt),
+MINOR = neue Funktion oder Korrektur mit Einfluss auf Ergebnisse, PATCH = Korrektur
+ohne Einfluss auf Ergebnisse. Jede Version steht in `locationer/__init__.py`
+(`VERSION`, `VERSION_DATUM`), auf der Webseite, in `api/status` und in jedem
+Auftrag (`auftrag.json`: `version`, `versionen`). Jedes Deployment bekommt eine
+neue Nummer und den Git-Tag `vX.Y.Z`.
+
+| Version | Datum | Was |
+|---|---|---|
+| 5.0.0 | 2026-10-25 | Haiku 5.5 mit Prompt v4; Schritt 2 (Triage + Opus 5.5); Zuordnung über Nummer + Echo; Akzent-Lücke GeoNames; Aufträge mit Teildateien; Parallelität; Kostengrenze; Server-Betrieb mit Webseite und API |
+| 4.x | bis 2026-10-23 | Haiku 4.5, Geostack mit Wikidata, Pictomap-Rückfluss, harte Region (ohne Versionsnummer geführt) |
+| 3 | 2026 | erste Fassung mit GEO DB, TGN, Nominatim |

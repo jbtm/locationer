@@ -52,3 +52,10 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# v5 (2026-10-25): Auftragsverzeichnisse (Kopie der Eingabe + Teildateien) und
+# die Auftragsliste des Servers — Laufergebnisse, nicht Code.
+*.auftrag/
+Code/auftraege/
+# Beim Deployment geschrieben (Git-Commit des ausgerollten Codes).
+Code/locationer/BUILD

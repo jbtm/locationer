@@ -5,3 +5,5 @@ pandas
 openpyxl
 folium
 pytest
+flask
+gunicorn

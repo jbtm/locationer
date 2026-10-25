@@ -13,6 +13,7 @@ ODbL licence — persistent caching allowed, commercial use allowed.
 
 import hashlib
 import math
+import threading
 import time
 from typing import Optional
 
@@ -23,6 +24,13 @@ _CITY_TYPES = {
     "city", "town", "village", "suburb", "county", "state", "country",
     "municipality", "administrative", "postcode",
 }
+
+
+# 1 Anfrage pro Sekunde gilt fuer den ganzen Prozess, nicht pro Objekt: bei
+# parallelen Paketen hat jedes seine eigene Nominatim-Instanz (eigene
+# Datenbankverbindung), der Takt muss trotzdem gemeinsam sein.
+_TAKT = threading.Lock()
+_LETZTER_AUFRUF = [0.0]
 
 
 def _norm_key(text: str) -> str:
@@ -45,6 +53,16 @@ class Nominatim:
         self._last_call = 0.0
         self._last_error: str = ""
         self._init_cache()
+
+    def _warte_takt(self) -> None:
+        """Public API: hoechstens 1 Anfrage pro Sekunde, ueber alle Threads."""
+        with _TAKT:
+            if self.base_url.startswith("https://nominatim.openstreetmap.org"):
+                warten = 1.0 - (time.time() - _LETZTER_AUFRUF[0])
+                if warten > 0:
+                    time.sleep(warten)
+            _LETZTER_AUFRUF[0] = time.time()
+            self._last_call = _LETZTER_AUFRUF[0]
 
     def _init_cache(self):
         self.cache_conn.execute("""
@@ -76,13 +94,8 @@ class Nominatim:
                 return None  # cached miss
             return self._make_result(row[0], row[1], row[2], row[3])
 
-        # Rate-limit: 1 req/s for public API
-        elapsed = time.time() - self._last_call
-        if elapsed < 1.0 and self.base_url.startswith("https://nominatim.openstreetmap.org"):
-            time.sleep(1.0 - elapsed)
-
+        self._warte_takt()
         self.call_count += 1
-        self._last_call = time.time()
 
         try:
             resp = requests.get(
@@ -139,12 +152,8 @@ class Nominatim:
                 return None
             return self._make_result(row[0], row[1], row[2], row[3])
 
-        elapsed = time.time() - self._last_call
-        if elapsed < 1.0 and self.base_url.startswith("https://nominatim.openstreetmap.org"):
-            time.sleep(1.0 - elapsed)
-
+        self._warte_takt()
         self.call_count += 1
-        self._last_call = time.time()
 
         delta_lat = radius_km / 111.0
         delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))

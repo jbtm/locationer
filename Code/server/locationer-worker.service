@@ -1,0 +1,20 @@
+[Unit]
+Description=Locationer Arbeiter (rechnet die Auftraege)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pictomap-tools/locationer
+ExecStart=/opt/pictomap-tools/locationer/venv/bin/python -m locationer.worker
+# Ein Neustart setzt den laufenden Auftrag fort (worker.py, auftrag.py).
+Restart=always
+RestartSec=10
+# Beim Stoppen bis zu 2 Minuten Zeit: die laufenden Pakete werden fertig
+# geschrieben oder verworfen, nie halb (Teildateien sind atomar).
+TimeoutStopSec=120
+# Speicher begrenzen, damit der Arbeiter nicht die anderen Werkzeuge
+# auf dem Server verdraengt (4 GB insgesamt).
+MemoryMax=2500M
+
+[Install]
+WantedBy=multi-user.target

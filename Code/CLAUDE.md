@@ -85,12 +85,28 @@ mv cache/tgn.sqlite /Volumes/LCMT_JBTM/LocationerGeo/tgn.sqlite
 ## Running
 
 ```bash
-python -m locationer locationer/TestFile.csv                          # mit Metrik
-python -m locationer ../ZIN.xlsx --chunk-size 1000 --output ../zin.csv
+python -m locationer locationer/TestFile.csv                          # mit Metrik, immer neu
+python -m locationer ../ZIN.xlsx --output ../zin.csv --workers 6 --grenze-chf 50
 python -m locationer locationer/DIS.xlsx --limit 50 --mode debug
 ```
 
-Parameter identisch zu V3: `--mode`, `--limit`, `--chunk-size`, `--output`, `--geo-db`.
+Jeder Lauf ist ein Auftrag (`auftrag.py`) mit Verzeichnis `<output>.auftrag/`;
+derselbe Befehl setzt fort (nach voller Pruefung). Parameter: `--mode`, `--limit`,
+`--chunk-size`, `--output`, `--workers`, `--grenze-chf`, `--geo-db`.
+
+## Server (tools.cronica.ch/locationer)
+
+`web.py` (Seite + API, gunicorn Port 5006) und `worker.py` (rechnet), beide aus
+`/opt/pictomap-tools/locationer`. Auftragsliste `register.py`, Kostenkasse
+`kasse.py`. Dateien fuer systemd/nginx/.env in `server/`. Details und API:
+description.md, Nachtrag 2026-10-25.
+
+## Versionierung
+
+`locationer/__init__.py`: `VERSION`, `VERSION_DATUM`. MAJOR = Ergebnisse aendern
+sich grundlegend, MINOR = Funktion/Korrektur mit Einfluss auf Ergebnisse, PATCH =
+ohne. **Vor jedem Deployment Version erhoehen, Zeile in description.md
+„Versionen" ergaenzen, Git-Tag `vX.Y.Z` setzen.**
 
 ## Architecture
 

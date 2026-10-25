@@ -1,5 +1,6 @@
 import math
 import sqlite3
+import re
 import unicodedata
 from typing import Optional
 
@@ -125,6 +126,13 @@ def _ascii_norm_variants(s: str) -> list[str]:
                     _dazu(" ".join([lang] + teile[1:]))
                 elif teile[0] == lang:
                     _dazu(" ".join([kurz] + teile[1:]))
+        _dazu(basis.replace("'", " ").replace("-", " "))     # „l'epalut" → `l epalut`
+    # Die Alternativnamen (`geo_alt_name.alt_name_norm`) behalten die Akzente:
+    # „castellón de la plana", „bâle".  Nur ASCII-Formen verfehlen sie — rund
+    # 530000 von 3 Mio. Namen waren so unerreichbar („Espagne, Castellón de la
+    # Plana" blieb ohne Koordinate, 2026-10-25).  Satzzeichen wie beim Aufbau
+    # der Tabelle: zu Leerzeichen.
+    _dazu(re.sub(r"[.\-/'():,]", " ", unicodedata.normalize("NFC", s.lower())))
     return formen
 
 

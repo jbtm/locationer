@@ -18,6 +18,7 @@ class NormalizedRecord:
     conflict: str = ""     # Widerspruch Eingabe ↔ Wissen, fuer die Pruefliste
     input_title: str = ""  # Titel aus der Eingabe, unveraendert (nicht gecacht, je Lauf gesetzt)
     nachgefasst: str = ""  # Schritt 2: Identifikation und Herkunft der Koordinate (nachfassen.py)
+    antwort_fehlt: bool = False  # Haiku lieferte fuer diese Zeile nichts Brauchbares — nicht cachen
 
 
 @dataclass

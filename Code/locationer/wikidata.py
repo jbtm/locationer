@@ -57,6 +57,7 @@ Land ein eigenes Einpflegeprojekt zu verlangen.
 
 import hashlib
 import math
+import threading
 import time
 from typing import Optional
 
@@ -77,6 +78,8 @@ SEARCH_LIMIT = 7
 # halben Sekunde bleibt klar im Rahmen fairer Nutzung; der Zwischenspeicher
 # sorgt dafuer, dass wiederholte Namen ohnehin nicht erneut gefragt werden.
 MIN_ABSTAND_S = 1.0
+_TAKT = threading.Lock()        # Abstand gilt prozessweit, auch bei parallelen Paketen
+_LETZTER_AUFRUF = [0.0]
 VERSUCHE = 3
 
 
@@ -247,10 +250,11 @@ class Wikidata:
         und darf nirgends als "nichts gefunden" durchgehen.
         """
         for versuch in range(VERSUCHE):
-            wartezeit = MIN_ABSTAND_S - (time.time() - self._letzter_aufruf)
-            if wartezeit > 0:
-                time.sleep(wartezeit)
-            self._letzter_aufruf = time.time()
+            with _TAKT:     # gemeinsam fuer alle Threads, wie bei Nominatim
+                wartezeit = MIN_ABSTAND_S - (time.time() - _LETZTER_AUFRUF[0])
+                if wartezeit > 0:
+                    time.sleep(wartezeit)
+                _LETZTER_AUFRUF[0] = self._letzter_aufruf = time.time()
             try:
                 r = requests.get(SEARCH_URL, headers=HEADERS, timeout=20, params=params)
             except Exception as e:

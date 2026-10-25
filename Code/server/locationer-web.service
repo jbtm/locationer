@@ -1,0 +1,17 @@
+[Unit]
+Description=Locationer Webseite und API (tools.cronica.ch/locationer)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pictomap-tools/locationer
+# Ein gunicorn-Arbeiter: /api/orte ist mit einer Sperre serialisiert, die
+# nur innerhalb eines Prozesses gilt.  Zeitgrenze aus fuer grosse Uploads.
+ExecStart=/opt/pictomap-tools/locationer/venv/bin/gunicorn \
+    --workers 1 --threads 4 --timeout 0 \
+    --bind 127.0.0.1:5006 locationer.web:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

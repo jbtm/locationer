@@ -138,8 +138,12 @@ class Nachfasser:
         for s in range(0, len(idx), batch):
             teil = idx[s:s + batch]
             for i, ant in zip(teil, frage([recs[i] for i in teil])):
-                self._lege_ab(keys[i], feld, ant)
-        return [self._hole(k, feld) or {} for k in keys]
+                if ant:                 # keine Antwort nie cachen — sonst nie wieder gefragt
+                    self._lege_ab(keys[i], feld, ant)
+                out[i] = ant
+        # Gleiche Eingabe weiter hinten: dieselbe Antwort wie die erste.
+        return [o if o is not None else (self._hole(k, feld) or out[offen[k]] or {})
+                for k, o in zip(keys, out)]
 
     # ── Koordinate ───────────────────────────────────────────────────────────
     def _koordinate(self, rec: NormalizedRecord, x: dict) -> "tuple[GeoResult | None, str]":
