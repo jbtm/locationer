@@ -21,6 +21,10 @@ from .geostack import GeoStack
 from .objekttyp import ist_punkt, _klein_norm as _klein_norm_lokal
 from .geo_db import ascii_norm, ascii_norm_de
 from .input_normalizer import InputNormalizer
+from .nachfassen import Nachfasser
+from .input_normalizer import _woerter
+
+_VERDACHT: list[int] = []   # Zeilennummern, deren Ergebnis nicht zur Eingabe passt
 from .metrics import TESTFILE
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
@@ -532,6 +536,7 @@ def _process_chunk(
     geo_db: "GeoDatabase",
     has_true_coords: bool,
     mode: str,
+    nachfasser=None,
 ) -> tuple[list[dict], int]:
     normalized  = normalizer.normalize_batch(chunk_rows)
     metadata    = normalizer.extract_metadata_batch(chunk_rows)   # Phase 1b
@@ -564,16 +569,37 @@ def _process_chunk(
                 if target_country and not rec.country:
                     rec.country = target_country
 
-    output_rows = []
-    unknown_loc = 0
-    for i, (rec, row, meta) in enumerate(zip(normalized, chunk_rows, metadata), chunk_start + 1):
-        # Skip geocoding when input explicitly states location is unknown
-        if _has_unknown_location(row):
-            geo = GeoResult()
-            geo.debug_info = ["skipped: location unknown in input"]
-            unknown_loc += 1
+    # Geostack fuer den ganzen Chunk vorab, damit Schritt 2 die Fehlschlaege
+    # gesammelt nachfassen kann (nachfassen.py).
+    unbekannt = [_has_unknown_location(row) for row in chunk_rows]
+    geos = []
+    for rec, unb in zip(normalized, unbekannt):
+        if unb:
+            # Skip geocoding when input explicitly states location is unknown
+            g = GeoResult()
+            g.debug_info = ["skipped: location unknown in input"]
         else:
-            geo = geostack.geocode(rec)
+            g = geostack.geocode(rec)
+        geos.append(g)
+    if nachfasser:
+        nachfasser.nachfassen(normalized, geos, unbekannt)
+
+    # Schlusskontrolle (dritte Sicherung gegen vertauschte Zeilen, nach
+    # Nummer und Echo in input_normalizer._zuordnen): Haikus Titel muss ein
+    # Wort mit Titel oder Beschreibung SEINER Eingabezeile teilen.  Meldet
+    # auch Uebersetzungen („Londres" → „London") — lieber ein Fehlalarm zu
+    # viel als eine stille Verwechslung.
+    for k, rec in enumerate(normalized):
+        eigen = _woerter(rec.title)
+        quelle = _woerter(rec.input_title) | _woerter(rec.description)
+        # „Wolkenansicht" aus „Wolken, Ansicht": Teilwoerter zaehlen mit.
+        if eigen and quelle and not any(a == b or (min(len(a), len(b)) >= 4 and (a in b or b in a))
+                                        for a in eigen for b in quelle):
+            _VERDACHT.append(chunk_start + k + 1)
+
+    output_rows = []
+    unknown_loc = sum(unbekannt)
+    for i, (rec, row, meta, geo) in enumerate(zip(normalized, chunk_rows, metadata, geos), chunk_start + 1):
 
         # Stadt ergaenzen, wenn sie fehlte und ein Objekt gefunden wurde
         # (Suchraum Region/Land, geostack.py).  Naechster Ort in derselben
@@ -626,6 +652,8 @@ def _process_chunk(
             # `Bemerkungen` gehoert der Importvorlage und wird durchgereicht.
             "Bildtyp": rec.image_type,
             "Widerspruch": rec.conflict,
+            # Schritt 2: wer identifiziert hat und woher die Koordinate kommt.
+            "Nachgefasst": rec.nachgefasst,
             "Ext-Calls": 1 if (geo.source in ("wikidata","nominatim") and geo.debug_info != ["cache hit"]) else 0,
         }
         if has_true_coords:
@@ -680,6 +708,56 @@ def _spaltenbericht(df) -> None:
         print("  Der Lauf findet so gut wie nichts. Spaltennamen prüfen, bevor es weitergeht.")
 
 
+def _zelle(v) -> str:
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return ""
+    s = str(v).strip()
+    try:
+        return repr(float(s))       # „1865" und „1865.0" sind dieselbe Zelle
+    except ValueError:
+        return s
+
+
+def _fortsetzen_ab(df: pd.DataFrame, out_path: str) -> int:
+    """Zeilen, die in `out_path` schon fertig sind — oder Abbruch.
+
+    Die Ausgabe reicht die Eingabespalten durch (bei Namenskonflikt mit
+    Suffix `_original`) — ausser denen, die `_als_importstruktur` als Quelle
+    einer Vorlagenspalte verbraucht.  Die erste und die letzte geschriebene
+    Zeile muessen in jeder durchgereichten Spalte mit der Eingabe
+    uebereinstimmen; es duerfen nicht mehr Zeilen sein als Eingabe.
+    """
+    verbraucht = set(_UMBENENNEN.values()) | {"Gitter"}
+    def stop(grund):
+        sys.exit(f"\nAusgabe {out_path} existiert, gehoert aber nicht zu dieser Eingabe: {grund}.\n"
+                 f"Nicht fortgesetzt.  Andere --output waehlen oder die Datei entfernen.")
+
+    try:
+        alt = pd.read_csv(out_path, dtype=str, keep_default_na=False)
+    except Exception as e:
+        stop(f"nicht lesbar ({e})")
+    if len(alt) == 0:
+        stop("keine Zeilen")
+    if len(alt) > len(df):
+        stop(f"{len(alt)} Zeilen, die Eingabe hat nur {len(df)}")
+    spalten = {}
+    for c in df.columns:
+        if c in verbraucht:
+            continue
+        ziel = f"{c}_original" if f"{c}_original" in alt.columns else c
+        if ziel not in alt.columns:
+            stop(f"Eingabespalte {c!r} fehlt in der Ausgabe")
+        spalten[c] = ziel
+    if not spalten:
+        stop("keine Eingabespalte zum Vergleichen")
+    for k in {0, len(alt) - 1}:
+        for c, ziel in spalten.items():
+            if _zelle(df.iloc[k][c]) != _zelle(alt.iloc[k][ziel]):
+                stop(f"Zeile {k + 1}, Spalte {c!r}: {str(alt.iloc[k][ziel])[:40]!r} "
+                     f"statt {str(df.iloc[k][c])[:40]!r}")
+    return len(alt)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Locationer – geocoding pipeline")
     ap.add_argument("input", help="Input CSV or XLSX file")
@@ -713,16 +791,15 @@ def main():
 
     # With --chunk-size: automatically resume if output already exists.
     # To restart from scratch, use a different --output path.
+    # Fortgesetzt wird nur, wenn die vorhandene Ausgabe nachweislich zu dieser
+    # Eingabe gehoert — sonst Abbruch.  2026-10-24 hing ein Lauf still an eine
+    # fremde Teil-Ausgabe an, und die Datei war gemischt.
     skip_rows = 0
     if args.chunk_size and Path(out_path).exists():
-        try:
-            existing = pd.read_csv(out_path)
-            skip_rows = len(existing)
-            df = df.iloc[skip_rows:].reset_index(drop=True)
-            if skip_rows:
-                print(f"Resuming: {skip_rows} Zeilen bereits geschrieben, weiter ab Zeile {skip_rows + 1}")
-        except Exception:
-            pass
+        skip_rows = _fortsetzen_ab(df, out_path)
+        df = df.iloc[skip_rows:].reset_index(drop=True)
+        if skip_rows:
+            print(f"Resuming: {skip_rows} Zeilen bereits geschrieben, weiter ab Zeile {skip_rows + 1}")
 
     total = len(df)                    # rows to process this run
     has_true_coords = any(_true_coords(r) for r in df.head(5).where(pd.notna(df.head(5)), None).to_dict("records"))
@@ -822,6 +899,9 @@ def main():
                           tgn_db=tgn_db, collection_bbox=_COLLECTION_BBOX,
                           country_dbs=country_dbs, wikidata=wikidata,
                           pictomap_ref=pictomap_ref)
+    # Schritt 2 (nachfassen.py): Fehlschlaege per Triage + Opus nachfassen.
+    nachfasser = (Nachfasser(normalizer, geostack, cache, debug=(args.mode == "debug"))
+                  if os.getenv("NACHFASSEN", "1") != "0" else None)
 
     chunk_size = args.chunk_size or total  # no chunking = one big chunk
 
@@ -846,7 +926,7 @@ def main():
         output_rows, unknown_loc = _process_chunk(
             chunk_rows, chunk_start, total,
             normalizer, geostack, geo_db,
-            has_true_coords, args.mode,
+            has_true_coords, args.mode, nachfasser,
         )
 
         out_df = pd.concat(
@@ -878,6 +958,16 @@ def main():
     print(f"Haiku calls (Phase 1a+1b): {normalizer.haiku_count}")
     print(f"Nominatim calls:           {geostack.ext_count}")
     print(f"Pictomap-Referenz Treffer: {geostack.pm_count}")
+    if _VERDACHT:
+        print(f"⚠  Zuordnung pruefen: {len(_VERDACHT)} Zeilen, deren Titel kein Wort mit "
+              f"ihrer Eingabe teilt (oft Uebersetzungen): {_VERDACHT[:30]}"
+              f"{' …' if len(_VERDACHT) > 30 else ''}")
+    else:
+        print("Zuordnung:                 alle Zeilen passen zu ihrer Eingabe")
+    if nachfasser:
+        print(f"Nachgefasst (Schritt 2):   {nachfasser.kandidaten} ohne Koordinate → "
+              f"{nachfasser.bestimmbar} bestimmbar → {nachfasser.gefunden} gefunden  "
+              f"({nachfasser.kosten_usd():.3f} USD)")
     _print_stats(all_output_rows, total_unknown_loc)
     print()
 

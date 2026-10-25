@@ -205,6 +205,21 @@ def _is_generic_title(title: str, city: str) -> bool:
     return bool(words) and words.issubset(_GENERIC_WORDS)
 
 
+# Gebiete, die GeoNames als eigenes Land fuehrt, die eine Eingabe aber oft
+# unter dem Mutterland nennt („UK, Gibraltar", „Chine, Hong Kong").  Fuer die
+# Landespruefung gelten sie als Teil davon.
+_UEBERSEE = {
+    "GI": "GB", "IM": "GB", "JE": "GB", "GG": "GB", "BM": "GB", "FK": "GB",
+    "HK": "CN", "MO": "CN",
+    "PR": "US", "GU": "US", "VI": "US", "AS": "US", "MP": "US",
+    "GL": "DK", "FO": "DK",
+    "AW": "NL", "CW": "NL", "SX": "NL", "BQ": "NL",
+    "RE": "FR", "GP": "FR", "MQ": "FR", "GF": "FR", "YT": "FR", "NC": "FR",
+    "PF": "FR", "PM": "FR", "BL": "FR", "MF": "FR", "WF": "FR",
+    "AX": "FI", "SJ": "NO",
+}
+
+
 def _norm_vergleich(s: str) -> str:
     """Kleinbuchstaben, ohne Akzente und Satzzeichen — fuer „steht X in Y"."""
     import unicodedata
@@ -292,7 +307,7 @@ class GeoStack:
         if admin1:
             return not a1 or admin1 == a1     # die Quelle kennt ihren Kanton
         lage = self.geo_db.lage(lat, lon) if (cc and self.geo_db) else None
-        if lage and cc not in {c for c, _ in lage}:
+        if lage and cc not in {_UEBERSEE.get(c, c) for c, _ in lage} | {c for c, _ in lage}:
             return False
         if not a1:
             return True

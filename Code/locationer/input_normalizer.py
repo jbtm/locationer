@@ -3,6 +3,7 @@ import html
 import json
 import re
 import threading
+import unicodedata
 from typing import Optional
 
 import anthropic
@@ -24,6 +25,8 @@ META_SYSTEM_PROMPT = """\
 Extract metadata from historical photo archive entries.
 For each numbered entry return one JSON object in an array:
 {
+  "n": <the entry number>,
+  "ref": "<the first five words of the entry, copied exactly>",
   "periode": "yyyy" or "yyyy-yyyy" or null,
   "urheber": "photographer/artist name" or null,
   "technik": "photography technique (e.g. Albumin, Photochrome, Tirage vintage, Cyanotype, …)" or null
@@ -45,6 +48,8 @@ You extract structured location metadata for a historical photo archive.
 
 For each numbered entry, return one JSON object in an array:
 {
+  "n":             <the entry number>,
+  "ref":           "<the first five words of the entry, copied exactly>",
   "title":         "<max 60 chars, human-readable, same language as the input>",
   "image_type":    "<one of: portrait | group | event | view | landscape | other>",
   "country":       "<English country name where the photo was TAKEN, or empty string>",
@@ -245,10 +250,64 @@ def _parse_array(raw: str) -> "list | None":
     return [d if isinstance(d, dict) else {} for d in data]
 
 
+def _ordne(data: "list | None", n: int) -> "list | None":
+    """Antworten ueber ihre Nummer `n` zuordnen — None, wenn das nicht aufgeht.
+
+    Die Reihenfolge allein reicht nicht: Haiku 5.5 vertauschte am 2026-10-24
+    zwei Nachbarn bei richtiger Anzahl (DISCO, 1 von 2000 Zeilen) — die
+    Koordinaten der beiden Bilder waren damit vertauscht, ohne Meldung.
+    """
+    if data is None:
+        return None
+    try:
+        nummern = [int(d.get("n")) for d in data]
+    except (TypeError, ValueError):
+        return None
+    if sorted(nummern) != list(range(1, n + 1)):
+        return None
+    return [d for _, d in sorted(zip(nummern, data), key=lambda t: t[0])]
+
+
+# Feldnamen stehen in jedem Eintrag — sie duerfen keine Gemeinsamkeit stiften.
+_FELDNAMEN = {"title", "description", "country", "city", "region"}
+
+
+def _woerter(s) -> set:
+    s = unicodedata.normalize("NFD", str(s or "").lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return set(re.findall(r"[^\W_]{2,}", s))
+
+
+def _zuordnen(data: "list | None", texte: list[str]) -> "list | None":
+    """Antworten den Eintraegen zuordnen — None, wenn auch nur einer nicht passt.
+
+    Zwei unabhaengige Pruefungen, beide muessen halten:
+      1. Nummer: jede Antwort traegt die Nummer ihres Eintrags (`n`), jede
+         Nummer genau einmal (_ordne).
+      2. Echo: jede Antwort gibt die ersten Woerter ihres Eintrags zurueck
+         (`ref`); mindestens die Haelfte davon muss im Eintrag stehen, den
+         der Code selbst geschickt hat.  Vertauscht das Modell zwei Antworten
+         samt Nummern, traegt die eine die Woerter des anderen Bildes.
+    Bei None halbiert der Aufrufer den Batch und fragt neu, bis hinunter zu
+    einem einzelnen Eintrag — dort ist keine Verwechslung moeglich.
+    """
+    geordnet = _ordne(data, len(texte))
+    if geordnet is None:
+        return None
+    for d, text in zip(geordnet, texte):
+        ref = _woerter(d.get("ref")) - _FELDNAMEN
+        ein = _woerter(text) - _FELDNAMEN
+        if not ein:
+            continue                      # Eintrag ohne Woerter: nichts zu pruefen
+        if not ref or len(ref & ein) < max(1, (len(ref) + 1) // 2):
+            return None
+    return geordnet
+
+
 def _verrutscht(data: "list | None", batch: list) -> bool:
     """Passt die Antwort nicht Eintrag fuer Eintrag zum Batch?
 
-    Haiku laesst gelegentlich einen Eintrag aus.  Die Antwort wird nur ueber
+    Haiku laesst gelegentlich einen Eintrag aus oder vertauscht zwei.  Die Antwort wird nur ueber
     die Position zugeordnet — fehlt Nr. 15 von 20, gehoeren 16–20 zu den
     falschen Bildern.  Beobachtet am 2026-10-24 (500er-Stichprobe DISCO):
     das Volta-Denkmal in Como bekam die Koordinate von Honolulu, ohne jede
@@ -258,7 +317,7 @@ def _verrutscht(data: "list | None", batch: list) -> bool:
     Dann wird der Batch halbiert und neu gefragt, bis die Anzahl stimmt.
     Ein einzelner Eintrag ohne brauchbare Antwort bleibt leer.
     """
-    return len(batch) > 1 and (data is None or len(data) != len(batch))
+    return len(batch) > 1 and _ordne(data, len(batch)) is None
 
 
 def _meta_raw_key(row: dict) -> str:
@@ -480,10 +539,11 @@ class InputNormalizer:
         )
 
         data = _parse_array(_antworttext(response))
-        if _verrutscht(data, batch):
+        geordnet = _zuordnen(data, lines)
+        if geordnet is None and len(batch) > 1:
             mitte = len(batch) // 2
             return self._call_meta_ai(batch[:mitte]) + self._call_meta_ai(batch[mitte:])
-        data = data or []
+        data = geordnet or data or []
 
         return [
             {
@@ -515,10 +575,11 @@ class InputNormalizer:
         )
 
         data = _parse_array(_antworttext(response))
-        if _verrutscht(data, batch):
+        geordnet = _zuordnen(data, lines)
+        if geordnet is None and len(batch) > 1:
             mitte = len(batch) // 2
             return self._call_ai(batch[:mitte]) + self._call_ai(batch[mitte:])
-        data = data or []
+        data = geordnet or data or []
 
         records = []
         for k, (_, _, mapped) in enumerate(batch):

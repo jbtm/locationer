@@ -101,6 +101,18 @@ Parameter identisch zu V3: `--mode`, `--limit`, `--chunk-size`, `--output`, `--g
 - City-Normalisierung: "Chur GR" → "Chur", "7000 Chur" → "Chur"
 - Cache: `norm_cache`
 
+### Schritt 2 — Nachfassen (`locationer/nachfassen.py`)
+- Nur Nicht-Porträts, die nach dem GeoStack ohne Koordinate sind
+- Triage (Haiku 5.5): `specific` | `area` | `none` — nur `specific` geht weiter
+- Opus 5.5 identifiziert Name, Wikidata-ID, Stadt, Land, Form (point/area/line), Sicherheit — **nie Koordinaten**
+- Koordinate aus Wikidata P625 (gegen Land/Region/Stadt geprüft) oder GeoStack mit Opus' Namen; Linien bekommen keine
+- Cache: `nachfass_cache`; abschaltbar mit `NACHFASSEN=0`
+
+### Zuordnung Antwort ↔ Zeile (alle Modellaufrufe)
+- Jede Antwort trägt Nummer `n` und das Echo `ref` (erste fünf Wörter); `_zuordnen` prüft beides gegen den gesendeten Text
+- Passt eine Antwort nicht: Batch halbieren, bis hinunter zu einem einzelnen Eintrag
+- Schlusskontrolle im Lauf: Titel ohne gemeinsames Wort mit der Eingabe → Warnung mit Zeilennummern
+
 ### Phase 1b — Metadaten-Extraktion (`locationer/input_normalizer.py`)
 - Claude Haiku, Batch à 20 → `periode`, `urheber`, `technik`
 - Cache: `meta_cache`
@@ -157,6 +169,7 @@ Timeouts. Re-aktivierbar wenn lokale Wikidata-Instanz verfügbar.
 | `meta_cache` | Phase 1b Ergebnisse | `cache/locationer.sqlite` |
 | `geo_cache` | Phase 2 Ergebnisse | `cache/locationer.sqlite` |
 | `nominatim_cache` | Nominatim-Antworten | `cache/locationer.sqlite` |
+| `nachfass_cache` | Schritt 2: Triage + Opus-Identifikation | `cache/locationer.sqlite` |
 | TGN SQLite | Alle TGN-Orte (1.6M) | `tgn.sqlite` (LCMT_JBTM) |
 | `overrides` + `norm_overrides` | Manuelle Korrekturen | `explicit_list/explicit.sqlite` |
 
@@ -169,6 +182,7 @@ Bei Unsicherheit: betroffene Cache-Tabellen leeren.
 |---|---|---|
 | `geostack.py`, `geo_db.py`, `country_db.py`, `tgn_db.py`, `nominatim.py` | `geo_cache` | `geo_cache` leeren |
 | `input_normalizer.py` | `norm_cache`, `meta_cache` | `norm_cache` + `meta_cache` leeren |
+| `nachfassen.py` (Prompts) | `nachfass_cache` | `UPDATE nachfass_cache SET ident=NULL` (bzw. `triage`) |
 | Overrides (`explicit.sqlite`) | `geo_cache` (betroffene Einträge) | `geo_cache` komplett leeren |
 | Country DBs neu importiert | `geo_cache` | `geo_cache` leeren |
 
@@ -218,4 +232,4 @@ TestFile.csv ist Kontrollmessung, nicht Trainingsdaten.
 3. **Nominatim als robuster Fallback** — globale OSM-Abdeckung, rechtlich sauber
 4. **Kein Aufruf ohne Anker** — Nominatim nur wenn city ODER location bekannt
 5. **50-km-Check** — GEO DB precise > 50km vom Stadtzentrum → verwerfen
-6. **Resumierbarkeit** — Cache + chunk-size wie V3
+6. **Resumierbarkeit** — Cache + chunk-size wie V3; fortgesetzt wird nur eine Ausgabe, deren erste und letzte Zeile zur Eingabe passen

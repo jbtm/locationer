@@ -17,6 +17,7 @@ class NormalizedRecord:
     city_source: str = ""  # 'text' (aus der Eingabe) | 'knowledge' (von Haiku gewusst) | ''
     conflict: str = ""     # Widerspruch Eingabe ↔ Wissen, fuer die Pruefliste
     input_title: str = ""  # Titel aus der Eingabe, unveraendert (nicht gecacht, je Lauf gesetzt)
+    nachgefasst: str = ""  # Schritt 2: Identifikation und Herkunft der Koordinate (nachfassen.py)
 
 
 @dataclass

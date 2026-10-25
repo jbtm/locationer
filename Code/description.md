@@ -867,6 +867,7 @@ Alle Caches sind persistente SQLite-Dateien. Ergebnisse werden einmalig berechne
 | `meta_cache` | Phase 1b Ergebnisse (periode/urheber/technik) | `cache/locationer.sqlite` |
 | `geo_cache` | Phase 2 Ergebnisse (Koordinaten + Score + ambiguous) | `cache/locationer.sqlite` |
 | `nominatim_cache` | Nominatim-Antworten (inkl. bounded-Queries mit eigenem Key) | `cache/locationer.sqlite` |
+| `nachfass_cache` | Schritt 2: Triage und Opus-Identifikation je Eingabe | `cache/locationer.sqlite` |
 | TGN-Datenbank | 2.99 Mio. Orte aus Getty TGN | `cache/tgn.sqlite` |
 | Country-DBs | Länderspezifische Alternativnamen | `<dir>/{cc}_country.sqlite` |
 | Overrides | Manuelle Koordinaten + Normalisierungen | `explicit_list/explicit.sqlite` |
@@ -883,6 +884,7 @@ Bounded-Suchanfragen werden mit einem eigenen Cache-Key gespeichert (`bounded|la
 | `geo_cache` | Wenn GeoStack-Logik geändert wurde (Radii, bounded search) |
 | `nominatim_cache` | Selten — nur bei fundamentalen API-Änderungen |
 | `meta_cache` | Fast nie — Periode/Urheber/Technik ändern sich nicht |
+| `nachfass_cache` | Wenn TRIAGE_PROMPT oder IDENT_PROMPT (`nachfassen.py`) geändert wurde — Spalte `ident` bzw. `triage` auf NULL setzen |
 
 ### Auto-Resume
 
@@ -892,6 +894,14 @@ Bounded-Suchanfragen werden mit einem eigenen Cache-Key gespeichert (`bounded|la
 # Erster Lauf (oder Resume nach Unterbruch — gleicher Befehl):
 python -m locationer locationer/ZIN_complete.csv
 ```
+
+**Fortgesetzt wird nur, was nachweislich zu dieser Eingabe gehört**
+(`_fortsetzen_ab`, seit 2026-10-25). Die erste und die letzte geschriebene
+Zeile müssen in jeder durchgereichten Eingabespalte mit der Eingabe
+übereinstimmen, und die Ausgabe darf nicht mehr Zeilen haben als die Eingabe.
+Sonst bricht der Lauf mit einer klaren Meldung ab, statt anzuhängen oder zu
+überschreiben. Anlass: Ein Lauf hing still an eine fremde Teil-Ausgabe an
+(„Resuming: 259 Zeilen"), und die Datei war gemischt.
 
 ---
 
@@ -994,6 +1004,7 @@ COUNTRY_DB_NO=/path/to/no_country.sqlite
 
 EXTRA_DESC_COLS=PeriodeRAW            # Optional, siehe unten
 COLLECTION_BBOX=43.0,62.0,-5.0,20.0  # Optional, siehe unten
+NACHFASSEN=0                          # Optional: Schritt 2 (Opus) abschalten
 ```
 
 Alle Pfade können relativ (zum Arbeitsverzeichnis) oder absolut angegeben werden.
@@ -1361,3 +1372,47 @@ weit vom bewährten Verhalten weg. Bekannt offen: „Val Medel" im TestFile
 (`locatable` = specific/area/none, im Test 17 von 19 Fällen wie meine
 Einschätzung) und ein Schritt 2 mit einem stärkeren Modell nur für die
 bestimmbaren Fälle ohne Koordinate. Koordinaten auch dort nie vom Modell.
+
+### Nachtrag 2026-10-25: Schritt 2 (Nachfassen), Zuordnung abgesichert
+
+**Schritt 2 — `locationer/nachfassen.py`.** Für Nicht-Porträts, die nach dem
+Geostack ohne Koordinate sind. Die Triage (Haiku 5.5) fragt, ob der Text einen
+bestimmten Ort nennt (`specific` | `area` | `none`). Nur `specific` geht an
+Opus 5.5, das Name, Wikidata-ID, Stadt, Region, Land, Form
+(`point`/`area`/`line`) und Sicherheit nennt, **nie Koordinaten**. Die
+Koordinate kommt aus Wikidata P625 der ID (gegen Land/Region und Abstand zur
+Stadt im Land des Punkts geprüft) oder aus dem Geostack mit Opus' Namen.
+- Eine verworfene ID wird nicht durch eine schwächere Namenssuche ersetzt
+  („UK, Gibraltar" → sonst das Dorf Gibraltar in England).
+- Ein Rückfall auf den Ortsmittelpunkt bleibt als Rückfall markiert (Score 3,
+  `Gitter` nach Ortsgrösse).
+- Linien (Bahnlinie, Strasse, Grenze) bekommen keine Koordinate („Ligne
+  Pékin-Hankou" landete sonst bei Tangshan).
+- `_UEBERSEE` in `geostack.py`: Überseegebiete zählen zum Mutterland
+  (GI→GB, HK→CN, PR→US, GL→DK …).
+- Ausgabespalte `Nachgefasst`: „Opus: Name (Sicherheit) → woher".
+- Cache `nachfass_cache`; abschaltbar mit `NACHFASSEN=0`.
+
+Gemessen (je 500 Zeilen, Nicht-Porträts mit Koordinate von 376):
+DISCO 2026 299 → 312–314, DISCO 42 (unabhängig) 297 → 306–309; ZIN ohne
+Rückschritt (ZIN 1: 476 → 477, über 10 km 58 → 57; ZIN 2: 463 → 473, 63 → 60);
+TestFile findet jetzt Val Medel. Opus antwortet nicht ganz gleich von Lauf zu
+Lauf (Spannweite oben). Kosten Schritt 2: 0.13–0.25 USD pro 500 Zeilen.
+
+**Zuordnung Antwort ↔ Zeile.** Haiku 5.5 hat in einem Batch zwei Antworten
+vertauscht (Anzahl stimmte, die Zeilenzahl-Prüfung sah nichts). Jetzt in allen
+vier Modellaufrufen (1a, 1b, Triage, Opus): jede Antwort trägt die Nummer `n`
+und das Echo `ref` (erste fünf Wörter wörtlich); `_zuordnen` prüft beides
+gegen den gesendeten Text. Passt eine nicht: Batch halbieren, bis zu einem
+einzelnen Eintrag. Danach eine Schlusskontrolle im Lauf (Titel ohne gemeinsames
+Wort oder Teilwort mit der Eingabe → Warnung mit Zeilennummern; Übersetzungen
+lösen sie als Fehlalarm aus). In fünf Testdateien (2045 Zeilen): keine
+Vertauschung.
+
+**Fortsetzen abgesichert** — siehe Abschnitt Auto-Resume.
+
+**Bekannte Lücke (offen):** Alternativnamen mit Akzent werden in GeoNames nie
+gefunden. `alt_name_norm` behält die Akzente („castellón de la plana"), die
+Suche fragt nur ASCII-Formen („castellon de la plana"). Betroffen sind rund
+530000 von 3 Mio. Alternativnamen; „Espagne, Castellón de la Plana" blieb so
+ohne Koordinate.
