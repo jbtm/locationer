@@ -1037,17 +1037,23 @@ Bleibt leer wenn nicht gesetzt (Standardfall).
 
 ### COLLECTION_BBOX
 
+Auf der Webseite heisst er seit v6.2.2 **Suchraum (Bbox)**; der Knopf „Auf Karte“
+zeigt ihn als Rechteck, zwei Klicks setzen einen neuen, „-“ = ohne. Er ist ein
+Zaun, kein Schwerpunkt: Treffer knapp ausserhalb werden genauso verworfen wie
+weit entfernte.
+
 Der wichtigste sammlungsspezifische Parameter. Er erfüllt **zwei unabhängige Rollen**, beide greifen nur wenn `country=""` (Haiku hat kein Land erkannt):
 
 **Rolle 1 — Harter Filter:** Jeder Geocoding-Treffer (GeoNames, TGN, Nominatim) wird am Ende gegen die Bbox geprüft. Liegt er ausserhalb → verworfen. Verhindert z.B. dass "Badus" in den Pyrenäen landet wenn kein Land bekannt ist.
 
-**Rolle 2 — Geografischer Prior:** Das Bbox-Zentrum wird als Proximity-Hint an GeoNames übergeben. Bei global mehrdeutigen Namen (z.B. "Matterhorn" existiert in CH und in NZ) wird der Eintrag bevorzugt der dem Bbox-Zentrum am nächsten liegt — ohne dass ein Override nötig ist.
+**Rolle 2 — Geografischer Prior:** Das Bbox-Zentrum wird als Proximity-Hint an GeoNames übergeben — nur wenn der Ort kein Siedlungsname ist und als Berg, See, Pass usw. gesucht wird. Bei global mehrdeutigen Namen (z.B. "Matterhorn" existiert in CH und in NZ) wird der Eintrag bevorzugt der dem Bbox-Zentrum am nächsten liegt — ohne dass ein Override nötig ist.
 
 Wenn `country` bekannt ist, greifen die länderspezifischen Bounding Boxes — `COLLECTION_BBOX` ist dann vollständig inaktiv. Bilder aus Ägypten, Südafrika oder Kanada werden korrekt geocodiert solange Haiku das Land erkennt.
 
 | Sammlung | Empfohlener Wert | Abdeckung |
 |---|---|---|
-| ZIN (Schweiz + Europa) | `43.0,62.0,-5.0,20.0` | CH/DE/AT/FR/IT/NO + Westeuropa |
+| Vorgabe Server (seit 2026-10-26), ZIN | `25,72,-15,45` | Europa mit ganz Italien, Mittelmeer, Nordafrika, Nahost |
+| früher ZIN | `43.0,62.0,-5.0,20.0` | Mitteleuropa; Süditalien (unter 43° N) lag ausserhalb |
 | Nordafrika | `18.0,38.0,-5.0,40.0` | Maghreb + Ägypten |
 | Global | *(leer lassen)* | kein Filter, nur Country-Bbox greift |
 
@@ -1477,7 +1483,7 @@ rot oben auf der Seite, der Tab-Titel zeigt „⏸".
 | `POST api/auftraege` | Datei (`datei`) oder JSON `{"zeilen": […]}`; Pflicht `grenze_chf`; optional `name`, `bbox`, `starten=1` |
 | `GET api/auftraege`, `GET api/auftraege/{id}` | Liste, Zustand, Fortschritt, Kosten, Hochrechnung, Protokoll |
 | `POST api/auftraege/{id}/starten` · `/weiter` · `/anhalten` · `/abbrechen` | Steuerung; `weiter` nur mit Grenze über den bisherigen Kosten |
-| `GET api/auftraege/{id}/ergebnis` | CSV; `?format=json`; `?teilweise=1` für die fertigen Pakete |
+| `GET api/auftraege/{id}/ergebnis` | CSV als `<Datei>_loc-<Abschlussdatum>.csv` (ohne Datei: Auftragsname); `?format=json`; `?teilweise=1` für die fertigen Pakete (`<Datei>_teil_loc-<heute>.csv`) |
 | `POST api/orte` | bis 50 Zeilen sofort, z. B. ein Bild aus Pictomap |
 | `GET api/status` · `POST api/tagesgrenze` | heutige Kosten, Tagesgrenze, Version |
 
