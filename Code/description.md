@@ -1554,6 +1554,34 @@ Gattungswörter lehnt es dort ab. Cache: `wikidata_kandidaten`,
 eine CSV-Zeile, mit Karte), Aufträge einklappbar, Dateiname und Zeitstempel
 (erstellt, gestartet, beendet, Rechenzeit).
 
+### Nachtrag 2026-10-26 (v6.1.0): Gattungswort nur, wenn im Ort eindeutig
+
+Auslöser: „Katholische Kirche Almens" landete an der reformierten Kirche.
+Haiku macht aus „Kath. Kirche" das Gattungswort „Kirche", der Code baut
+„Kirche Almens", Nominatim nimmt die erste von zwei Kirchen, und der Cache gibt
+sie jeder „Kirche Almens" weiter. In Städten mit Dutzenden Kirchen, Plätzen,
+Häfen ist der erste Treffer Zufall — ein scheinbar genauer Punkt.
+
+Zwei Versuche über die Haiku-Anweisung („unterscheidende Wörter behalten")
+wurden verworfen: Haiku übernahm dann den Wortlaut („Le Château Blois" statt
+„Château de Blois"), und bei DISCO gingen 15 genaue Treffer verloren.
+
+**Regel (geostack `_gattung`, `_gattung_eindeutig`):** Hat das Objekt die
+Form „<Wort> <Ort>" (so baut der Code ein Gattungswort), fragt Nominatim bis
+10 Treffer ab (`nominatim.alle_bounded`, ersetzt die Einzelanfrage). Gibt es
+in der Gemeinde mehrere gleicher Art (OSM-Klasse und -Typ, Haltestellen
+ausgenommen), gilt die Ortsmitte. Ausnahme: einer ist weit bedeutender
+(Nominatim-`importance` ≥ 0.3 und doppelt so hoch wie der nächste) — „Château
+Chantilly" meint das Schloss. Ist er eindeutig, bleibt alles wie vorher. Die
+Kandidaten-Prüfung rät bei solchen Zeilen nicht nach. Schalter: `GATTUNG=0`,
+`BEDEUTEND=0`. Cache: `nominatim_alle`.
+
+**Gemessen (gleiche Haiku-Antworten, mit und ohne Regel, 2300 Zeilen):** 230
+Gattungswort-Objekte; 17 Zufallstreffer → Ortsmitte (Kirchen St. Moritz,
+Wädenswil, Mainz, Jerusalem; Cathédrale Alger vorher 8.6 km daneben; Hafen
+Bordeaux, Museum Neapel, Teatro Siracusa …), 4 genauer (Hafen Rorschach,
+Bahnhof Messina, Château Vichy), ein Verlust (Grande Mosquée Srinagar → Ortsmitte).
+
 ## Versionen
 
 Regel: MAJOR = Ergebnisse ändern sich grundlegend (Modell, Pipeline-Schritt),
@@ -1565,6 +1593,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.1.0 | 2026-10-26 | Gattungswort-Objekte („Kirche Almens“) nur mit eindeutigem Treffer im Ort, sonst Ortsmitte; Ausnahme bei weit bedeutenderem Objekt |
 | 6.0.2 | 2026-10-25 | Einzelabfrage: Knopf „Logik“ zeigt das Debug-Protokoll (Haiku-Felder, jede Geostack-Station, Wikidata-Kandidaten mit Urteil, Triage/Opus); `api/orte` mit `"logik": true` |
 | 6.0.1 | 2026-10-25 | Einzelabfrage: Karte erscheint (Kreis erst nach dem Ausschnitt), ⓘ-Erklärungen zu Gitter, Score und Bildtyp |
 | 6.0.0 | 2026-10-25 | Gemeinde-Prüfung (10 Länder); Objektart von Haiku statt Wortliste; Phase 1a effort medium mit Fassung im Cache; Region aus Département/Provinz, ohne grossen Kreis; Naturobjekt-Regel für alle Quellen, Gewässer auch aus dem Titel; Schritt 1.5 Kandidaten-Prüfung; Einzelabfrage und Zeitstempel im GUI |

@@ -12,6 +12,7 @@ ODbL licence — persistent caching allowed, commercial use allowed.
 """
 
 import hashlib
+import json
 import math
 import threading
 import time
@@ -72,6 +73,13 @@ class Nominatim:
                 lon          REAL,
                 display_name TEXT,
                 place_type   TEXT,
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.cache_conn.execute("""
+            CREATE TABLE IF NOT EXISTS nominatim_alle (
+                key          TEXT PRIMARY KEY,
+                liste        TEXT NOT NULL,
                 created_at   TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -198,6 +206,52 @@ class Nominatim:
         )
         self.cache_conn.commit()
         return self._make_result(r_lat, r_lon, display_name, place_type)
+
+    def alle_bounded(self, query: str, lat: float, lon: float, radius_km: float,
+                     limit: int = 10) -> "list[dict] | None":
+        """Wie search_bounded, aber bis `limit` Treffer — fuer Gattungswoerter.
+
+        „Kirche Almens" hat zwei Kirchen, „Kirche Zürich" Dutzende; der erste
+        Treffer ist dann Zufall (geostack._gattung_eindeutig).  Gleiche Anzahl
+        Anfragen wie search_bounded: es ersetzt sie fuer solche Objekte.
+        → Liste (leer = nichts gefunden) oder None bei einem Fehler (nicht gemerkt).
+        """
+        key = _norm_key(f"alle2|{limit}|{lat:.3f},{lon:.3f},{radius_km:.1f}|{query}")
+        row = self.cache_conn.execute(
+            "SELECT liste FROM nominatim_alle WHERE key=?", (key,)).fetchone()
+        if row is not None:
+            return json.loads(row[0])
+
+        self._warte_takt()
+        self.call_count += 1
+        delta_lat = radius_km / 111.0
+        delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
+        viewbox = f"{lon - delta_lon},{lat + delta_lat},{lon + delta_lon},{lat - delta_lat}"
+        try:
+            resp = requests.get(
+                f"{self.base_url}/search",
+                params={"q": query, "format": "json", "limit": limit, "addressdetails": 1,
+                        "viewbox": viewbox, "bounded": 1},
+                headers={"User-Agent": self.user_agent},
+                timeout=8,
+            )
+            data = resp.json()
+        except Exception as e:
+            self._last_error = str(e)
+            self.call_count -= 1
+            return None
+        if isinstance(data, dict):          # Fehlerantwort, siehe search()
+            self._last_error = f"Nominatim-Fehlerantwort: {str(data)[:120]}"
+            return None
+        liste = [{**self._make_result(float(r["lat"]), float(r["lon"]), r.get("display_name", query),
+                                      r.get("type", r.get("class", ""))),
+                  "klasse": r.get("class", ""),
+                  "importance": float(r.get("importance") or 0.0)}
+                 for r in (data or [])]
+        self.cache_conn.execute("INSERT OR REPLACE INTO nominatim_alle (key, liste) VALUES (?, ?)",
+                                (key, json.dumps(liste, ensure_ascii=False)))
+        self.cache_conn.commit()
+        return liste
 
     def _make_result(self, lat, lon, display_name, place_type) -> dict:
         is_precise = place_type.lower() not in _CITY_TYPES

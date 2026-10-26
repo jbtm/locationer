@@ -169,6 +169,8 @@ class Kandidatenpruefer:
                 continue
             if g.lat is not None and not g.fallback:
                 continue                  # genauer Treffer: nichts zu pruefen
+            if any(d.startswith("Gattungswort nicht eindeutig") for d in g.debug_info):
+                continue                  # mehrere gleichartige im Ort: kein Raten (geostack)
             kand = self._sammeln(rec)
             if kand:
                 faelle.append((k, rec, kand, _key(rec, kand)))

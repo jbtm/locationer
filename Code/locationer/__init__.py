@@ -11,8 +11,8 @@ haelt fest, mit welcher Version er gerechnet wurde (auftrag.json).
 import subprocess
 from pathlib import Path
 
-VERSION = "6.0.2"
-VERSION_DATUM = "2026-10-25"
+VERSION = "6.1.0"
+VERSION_DATUM = "2026-10-26"
 
 
 def _commit() -> str:

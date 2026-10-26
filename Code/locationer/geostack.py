@@ -183,6 +183,15 @@ def _gelaende(location: str, art: str = "") -> bool:
 _ARTEN = {"building", "street", "nature"}
 
 
+# Gattungswort mit mehreren Treffern: einer gilt als gemeint, wenn seine
+# Nominatim-`importance` mindestens 0.3 und doppelt so hoch ist wie die des
+# naechsten gleicher Art (geostack._gattung_eindeutig).  Vor dem Test
+# festgelegt, nicht an Einzelfaellen eingestellt.
+_BEDEUTEND_MIN = 0.3
+_HALTESTELLEN = {"bus_stop", "platform", "stop", "stop_position", "tram_stop", "station_entrance"}
+_BEDEUTEND_FAKTOR = 2.0
+
+
 def _natur(record) -> bool:
     """Berg, Pass, Gewaesser, Tal …: darf weiter weg vom Ort liegen."""
     if record.location_kind in _ARTEN:
@@ -504,6 +513,75 @@ class GeoStack:
             debug_info=result.debug_info + [
                 f"Naturobjekt {result.match_name!r} {dist:.1f} km vom Ort "
                 f"(> {radius:.0f} km) — Ortsmittelpunkt {ort['name']!r}"])
+
+    # ── Gattungswort: nur ein eindeutiger Treffer im Ort zaehlt ─────────────
+    #
+    # „Kath. Kirche Almens" → Haiku: Gattungswort „Kirche" → Objekt „Kirche
+    # Almens"; Nominatim nahm die erste von zwei Kirchen (die reformierte),
+    # und der Cache gab sie jeder „Kirche Almens" weiter (2026-10-25).  In
+    # Staedten mit Dutzenden Kirchen, Plaetzen, Brunnen ist der erste Treffer
+    # Zufall — ein scheinbar genauer Punkt.
+    #
+    # Erkannt an der Form, die der Code aus einem Gattungswort baut:
+    # „<Wort> <Ort>" (input_normalizer: location_type + city).  Eigennamen
+    # derselben Form („Kursaal Luzern") sind mit dabei — unschaedlich, denn
+    # davon gibt es im Ort nur einen.  Gibt es mehrere Treffer derselben Art
+    # in der Gemeinde: Ortsmitte statt Zufallstreffer.
+
+    @staticmethod
+    def _gattung(record) -> bool:
+        if os.getenv("GATTUNG", "1") == "0":
+            return False                  # Schalter fuer den Vergleichslauf
+        loc, stadt = (record.location or "").strip(), (record.city or "").strip()
+        if not loc or not stadt or _natur(record) or not loc.lower().endswith(" " + stadt.lower()):
+            return False
+        return 1 <= len(loc[: -len(stadt)].split()) <= 2
+
+    def _gattung_eindeutig(self, record, region, city_row, near, city_radius, anker, anker_r,
+                           dbg) -> "tuple[dict | None, int]":
+        """(Treffer, Anzahl gleichartiger Treffer im Ort) — Treffer nur, wenn eindeutig."""
+        dbg.append(f"Nominatim Gattungswort: {record.location!r} — bis 10 Treffer (r={anker_r:.0f}km)")
+        liste = self.nominatim.alle_bounded(record.location, anker[0], anker[1], anker_r)
+        if not liste:
+            return None, 0
+        im_ort = [r for r in liste if r["precise"]
+                  and self._in_region(r["lat"], r["lon"], region)
+                  and not self._ausserhalb_gemeinde(r["lat"], r["lon"], record, city_row, near, city_radius)]
+        if not im_ort:
+            dbg.append("Gattungswort: kein Treffer in der Gemeinde")
+            return None, 0
+        # Die Art bestimmt der erste Treffer, der keine Haltestelle ist: in
+        # Chantilly war der erste Treffer zu „Château" eine Bushaltestelle.
+        # Nur Haltestellen — Plaetze und Fussgaengerzonen sind ebenfalls
+        # „highway" und muessen bleiben (Place de la Bourse, Bordeaux).
+        objekte = [r for r in im_ort if r.get("klasse") != "public_transport"
+                   and r.get("place_type") not in _HALTESTELLEN] or im_ort
+        art = (objekte[0].get("klasse"), objekte[0].get("place_type"))
+        gleich = []
+        for r in im_ort:
+            if (r.get("klasse"), r.get("place_type")) == art and \
+                    all(_dist_km(r["lat"], r["lon"], g["lat"], g["lon"]) > 0.1 for g in gleich):
+                gleich.append(r)
+        if len(gleich) >= 2:
+            # Ausnahme: einer ist weit bedeutender als alle anderen gleicher
+            # Art (Nominatim `importance`, aus Wikipedia-Verlinkung).  „Château
+            # Chantilly" meint das Schloss, nicht die kleinen Schloesschen im
+            # Ort; zwei Dorfkirchen sind dagegen gleich unbedeutend.
+            nach = sorted(gleich, key=lambda g: g.get("importance", 0.0), reverse=True)
+            i1, i2 = nach[0].get("importance", 0.0), nach[1].get("importance", 0.0)
+            if (os.getenv("BEDEUTEND", "1") != "0" and i1 >= _BEDEUTEND_MIN
+                    and i1 >= _BEDEUTEND_FAKTOR * i2):
+                dbg.append(f"Gattungswort: {len(gleich)} × {art[1] or art[0]} im Ort, aber "
+                           f"{nach[0]['name']!r} weit bedeutender ({i1:.2f} gegen {i2:.2f})")
+                return nach[0], 1
+            namen = ", ".join(g["name"] for g in gleich[:4])
+            dbg.append(f"Gattungswort nicht eindeutig: {len(gleich)} × {art[1] or art[0]} im Ort "
+                       f"({namen}{' …' if len(gleich) > 4 else ''}) — Ortsmitte")
+            return None, len(gleich)
+        # Eindeutig: wie ohne diese Regel der erste Treffer im Ort — die Regel
+        # soll nur eingreifen, wenn es mehrere gibt.
+        dbg.append(f"Gattungswort eindeutig: {objekte[0]['name']}")
+        return objekte[0], 1
 
     _FLUSS_CODES = ("STM", "CNL")
     _FLUSS_TGN = {"stream", "creek", "river", "canal", "intermittent watercourse"}
@@ -956,6 +1034,7 @@ class GeoStack:
             # ist ein Punkt ohnehin willkuerlich, und welche Quelle naeher an der
             # Aufnahme liegt, ist Zufall.  Die vierte war schon vorher 3 km daneben.
             wd = None
+            gattung_mehrdeutig = False
             if self.wikidata and anker and record.location:
                 wd = self.wikidata.finde(record.location, record.city or "",
                                          near=anker, max_dist_km=anker_r,
@@ -983,13 +1062,20 @@ class GeoStack:
                 # to be in the right area, even if the query string is imprecise.
                 # Query is just the location name — city context comes from the viewbox.
                 nm_query = record.location
-                dbg.append(f"Nominatim bounded query: {nm_query!r} (r={anker_r:.0f}km)")
-                nm = self.nominatim.search_bounded(nm_query, anker[0], anker[1], anker_r)
-                if nm is None:
+                gattung = self._gattung(record) and near is not None
+                if gattung:
+                    nm, n_gleich = self._gattung_eindeutig(record, region, city_row, near, city_radius,
+                                                           anker, anker_r, dbg)
+                    if n_gleich >= 2:
+                        gattung_mehrdeutig = True
+                else:
+                    dbg.append(f"Nominatim bounded query: {nm_query!r} (r={anker_r:.0f}km)")
+                    nm = self.nominatim.search_bounded(nm_query, anker[0], anker[1], anker_r)
+                if nm is None and not gattung_mehrdeutig:
                     # Retry with location + city in case Nominatim needs the city name
                     dbg.append(f"Nominatim bounded retry: {query!r}")
                     nm = self.nominatim.search_bounded(query, anker[0], anker[1], anker_r)
-                if nm is None and record.geocoding_queries:
+                if nm is None and record.geocoding_queries and not gattung_mehrdeutig:
                     # Try Haiku-generated local-language queries (e.g. "Cathédrale Saint-Pierre Genève")
                     for gq in record.geocoding_queries:
                         dbg.append(f"Nominatim bounded geocoding_query: {gq!r}")

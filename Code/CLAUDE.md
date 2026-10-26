@@ -118,6 +118,10 @@ ohne. **Vor jedem Deployment Version erhoehen, Zeile in description.md
 - City-Normalisierung: "Chur GR" → "Chur", "7000 Chur" → "Chur"
 - Cache: `norm_cache`
 
+### Gattungswort im Geostack (`geostack._gattung_eindeutig`, seit v6.1.0)
+- Objekt der Form „<Wort> <Ort>" (z.B. „Kirche Almens"): Nominatim bis 10 Treffer; mehrere gleicher Art in der Gemeinde → Ortsmitte
+- Ausnahme: ein Treffer weit bedeutender (Nominatim importance ≥ 0.3 und ≥ 2× der nächste); Schalter `GATTUNG=0`, `BEDEUTEND=0`
+
 ### Schritt 1.5 — Kandidaten-Prüfung (`locationer/kandidaten.py`)
 - Nicht-Porträts mit genanntem Objekt, aber ohne genauen Treffer (Ortsmitte oder nichts)
 - Kandidaten: Wikidata-Volltextsuche (genau + unscharf, nur mit P625, im Umkreis), gefiltert nach Land/Region/Gemeinde
