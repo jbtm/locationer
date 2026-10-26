@@ -126,6 +126,18 @@ class Wikidata:
                 created_at   TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Kennung aus einer anderen Datenbank → QID (qid_fuer); '' = keine.
+        self.cache_conn.execute("""
+            CREATE TABLE IF NOT EXISTS wikidata_ids (
+                key          TEXT PRIMARY KEY,
+                qid          TEXT NOT NULL,
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        try:
+            self.cache_conn.execute("ALTER TABLE wikidata_cache ADD COLUMN qid TEXT")
+        except Exception:
+            pass                        # Spalte gibt es schon
         self.cache_conn.commit()
 
     def search(
@@ -151,13 +163,21 @@ class Wikidata:
 
         k = _key(location, lang, near, max_dist_km, nur_exakt)
         row = self.cache_conn.execute(
-            "SELECT lat, lon, label FROM wikidata_cache WHERE key=?", (k,)).fetchone()
-        if row is not None:
+            "SELECT lat, lon, label, qid FROM wikidata_cache WHERE key=?", (k,)).fetchone()
+        # Treffer von vor v6.2 ohne QID: neu fragen, damit die Kennung dazukommt.
+        if row is not None and (row[0] is None or row[3]):
             return None if row[0] is None else {"lat": row[0], "lon": row[1],
-                                                "name": row[2] or location, "qid": ""}
+                                                "name": row[2] or location, "qid": row[3]}
+        # Scheitert das Nachfragen, gilt der alte Treffer weiter (QID unbekannt,
+        # None) — ein Fehler bei Wikidata darf kein Ergebnis kosten.  Im Test
+        # 2026-10-26 fiel „Locarno, Landschaft" sonst unter Last auf die Ortsmitte.
+        alt = None if row is None else {"lat": row[0], "lon": row[1],
+                                        "name": row[2] or location, "qid": None}
 
         self.call_count += 1
         treffer, fehler = self._suche_namen(location, lang)
+        if fehler and alt:
+            return alt
         if fehler:
             # NICHT als "nichts gefunden" merken: ein abgewiesener Aufruf sieht
             # sonst aus wie eine echte Fehlanzeige und wuerde das Objekt dauerhaft
@@ -187,7 +207,7 @@ class Wikidata:
         koords, fehler = self._hole_koordinaten([q for q, _, _, _, _ in treffer])
         if fehler:
             self.error_count += 1
-            return None
+            return alt
         if not koords:
             self._cache_miss(k)
             return None
@@ -215,8 +235,8 @@ class Wikidata:
         kandidaten.sort()
         dist, qid, label, la, lo = kandidaten[0]
         self.cache_conn.execute(
-            "INSERT OR REPLACE INTO wikidata_cache (key,lat,lon,label) VALUES (?,?,?,?)",
-            (k, la, lo, label))
+            "INSERT OR REPLACE INTO wikidata_cache (key,lat,lon,label,qid) VALUES (?,?,?,?,?)",
+            (k, la, lo, label, qid))
         self.cache_conn.commit()
         if self.debug:
             print(f"      wikidata: {label!r} ({qid}) {dist:.1f} km vom Anker")
@@ -357,6 +377,73 @@ class Wikidata:
                 self._last_error = "keine JSON-Antwort"
                 return None, True
         return None, True
+
+    def qid_fuer(self, eigenschaft: str, wert) -> "str | None":
+        """QID des Objekts, das in Wikidata eine fremde Kennung traegt.
+
+        P1566 = GeoNames-Nummer, P1667 = Getty-TGN-Nummer.  So bekommt auch ein
+        Treffer aus GeoNames oder TGN seine Wikidata-Kennung — ohne Namenssuche,
+        also ohne Verwechslungsgefahr.  Fuehren mehrere Objekte dieselbe
+        Kennung, gilt der mit den meisten Wikipedia-Artikeln.  Eintraege ohne
+        „ist ein" (P31) zaehlen nicht: zum Ortspunkt von Siena gibt es nur
+        Q49280771, einen leeren Bot-Eintrag — Q2751 fuehrt die Nummer der
+        Gemeinde (dafuer GeoStack.qid_ort).
+        → QID, '' wenn keines, None bei einem Fehler (nicht gemerkt).
+        """
+        wert = str(wert or "").strip()
+        if not wert:
+            return ""
+        k = f"{eigenschaft}={wert}"
+        row = self.cache_conn.execute("SELECT qid FROM wikidata_ids WHERE key=?", (k,)).fetchone()
+        if row is not None:
+            return row[0]
+        self.call_count += 1
+        j, fehler = self._abfrage({"action": "query", "list": "search", "format": "json",
+                                   "srsearch": f"haswbstatement:{k} haswbstatement:P31", "srlimit": 5,
+                                   "srnamespace": 0})
+        if fehler:
+            self.error_count += 1
+            return None
+        qids = [t["title"] for t in ((j or {}).get("query") or {}).get("search") or []]
+        if len(qids) > 1:
+            j, fehler = self._abfrage({"action": "wbgetentities", "ids": "|".join(qids),
+                                       "props": "sitelinks", "format": "json"})
+            if fehler:
+                self.error_count += 1
+                return None
+            ents = (j or {}).get("entities") or {}
+            # max() behaelt bei Gleichstand den ersten, also die Suchreihenfolge.
+            qids = [max(qids, key=lambda q: len((ents.get(q) or {}).get("sitelinks") or {}))]
+        qid = qids[0] if qids else ""
+        self.cache_conn.execute("INSERT OR REPLACE INTO wikidata_ids (key, qid) VALUES (?, ?)", (k, qid))
+        self.cache_conn.commit()
+        return qid
+
+    def bekannter(self, a: str, b: str) -> "str | None":
+        """Von zwei QIDs die mit mehr Wikipedia-Artikeln (bei Gleichstand a).
+
+        Fuer den Ort (GeoStack.qid_ort): zum Ortspunkt von Wädenswil gibt es
+        einen Bot-Eintrag mit einem einzigen Artikel (Q22641605), die Gemeinde
+        selbst (Q69718) haengt an der Nummer der Gemeinde.  Gemerkt je Paar.
+        → QID, None bei einem Fehler.
+        """
+        if not a or not b or a == b:
+            return a or b
+        k = f"BEKANNTER={a}|{b}"
+        row = self.cache_conn.execute("SELECT qid FROM wikidata_ids WHERE key=?", (k,)).fetchone()
+        if row is not None:
+            return row[0]
+        j, fehler = self._abfrage({"action": "wbgetentities", "ids": f"{a}|{b}",
+                                   "props": "sitelinks", "format": "json"})
+        if fehler:
+            self.error_count += 1
+            return None
+        ents = (j or {}).get("entities") or {}
+        n = {q: len((ents.get(q) or {}).get("sitelinks") or {}) for q in (a, b)}
+        qid = b if n[b] > n[a] else a
+        self.cache_conn.execute("INSERT OR REPLACE INTO wikidata_ids (key, qid) VALUES (?, ?)", (k, qid))
+        self.cache_conn.commit()
+        return qid
 
     def _suche_namen(self, text: str, lang: str):
         """wbsearchentities — Bezeichnungen UND Aliasnamen, serverseitig indiziert."""

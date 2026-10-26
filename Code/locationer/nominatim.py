@@ -34,6 +34,17 @@ _TAKT = threading.Lock()
 _LETZTER_AUFRUF = [0.0]
 
 
+def _qid(r: dict) -> str:
+    """OSM-Tag wikidata=Q… aus einer Antwort mit extratags; '' wenn keiner."""
+    q = ((r.get("extratags") or {}).get("wikidata") or "").strip()
+    return q if q.startswith("Q") and q[1:].isdigit() else ""
+
+
+def _abstand_m(lat1, lon1, lat2, lon2) -> float:
+    x = math.radians(lon2 - lon1) * math.cos(math.radians((lat1 + lat2) / 2))
+    return 6371000 * math.hypot(x, math.radians(lat2 - lat1))
+
+
 def _norm_key(text: str) -> str:
     return hashlib.sha256(f"nominatim|{text.lower().strip()}".encode()).hexdigest()[:20]
 
@@ -83,6 +94,11 @@ class Nominatim:
                 created_at   TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # OSM-Tag wikidata=Q… (extratags).  NULL = von vor v6.2, unbekannt.
+        try:
+            self.cache_conn.execute("ALTER TABLE nominatim_cache ADD COLUMN wikidata TEXT")
+        except Exception:
+            pass                        # Spalte gibt es schon
         self.cache_conn.commit()
 
     def search(self, query: str) -> Optional[dict]:
@@ -93,14 +109,16 @@ class Nominatim:
         key = _norm_key(query)
 
         # Cache lookup
+        frage = ("frei", query)
         row = self.cache_conn.execute(
-            "SELECT lat, lon, display_name, place_type FROM nominatim_cache WHERE key=?",
+            "SELECT lat, lon, display_name, place_type, wikidata FROM nominatim_cache WHERE key=?",
             (key,),
         ).fetchone()
         if row is not None:
             if row[0] is None:
                 return None  # cached miss
-            return self._make_result(row[0], row[1], row[2], row[3])
+            return {**self._make_result(row[0], row[1], row[2], row[3]),
+                    "wikidata": row[4], "_frage": frage}
 
         self._warte_takt()
         self.call_count += 1
@@ -108,7 +126,8 @@ class Nominatim:
         try:
             resp = requests.get(
                 f"{self.base_url}/search",
-                params={"q": query, "format": "json", "limit": 1, "addressdetails": 1},
+                params={"q": query, "format": "json", "limit": 1, "addressdetails": 1,
+                        "extratags": 1},
                 headers={"User-Agent": self.user_agent},
                 timeout=8,
             )
@@ -134,13 +153,16 @@ class Nominatim:
         lon = float(r["lon"])
         display_name = r.get("display_name", query)
         place_type = r.get("type", r.get("class", ""))
+        qid = _qid(r)
 
         self.cache_conn.execute(
-            "INSERT OR REPLACE INTO nominatim_cache (key,lat,lon,display_name,place_type) VALUES (?,?,?,?,?)",
-            (key, lat, lon, display_name, place_type),
+            "INSERT OR REPLACE INTO nominatim_cache (key,lat,lon,display_name,place_type,wikidata) "
+            "VALUES (?,?,?,?,?,?)",
+            (key, lat, lon, display_name, place_type, qid),
         )
         self.cache_conn.commit()
-        return self._make_result(lat, lon, display_name, place_type)
+        return {**self._make_result(lat, lon, display_name, place_type),
+                "wikidata": qid, "_frage": frage}
 
     def search_bounded(self, query: str, lat: float, lon: float, radius_km: float) -> Optional[dict]:
         """Search constrained to a viewbox around (lat, lon) with given radius.
@@ -150,15 +172,17 @@ class Nominatim:
         are stored independently.
         """
         key = _norm_key(f"bounded|{lat:.3f},{lon:.3f},{radius_km:.1f}|{query}")
+        frage = ("bounded", query, lat, lon, radius_km)
 
         row = self.cache_conn.execute(
-            "SELECT lat, lon, display_name, place_type FROM nominatim_cache WHERE key=?",
+            "SELECT lat, lon, display_name, place_type, wikidata FROM nominatim_cache WHERE key=?",
             (key,),
         ).fetchone()
         if row is not None:
             if row[0] is None:
                 return None
-            return self._make_result(row[0], row[1], row[2], row[3])
+            return {**self._make_result(row[0], row[1], row[2], row[3]),
+                    "wikidata": row[4], "_frage": frage}
 
         self._warte_takt()
         self.call_count += 1
@@ -172,7 +196,7 @@ class Nominatim:
                 f"{self.base_url}/search",
                 params={
                     "q": query, "format": "json", "limit": 1, "addressdetails": 1,
-                    "viewbox": viewbox, "bounded": 1,
+                    "viewbox": viewbox, "bounded": 1, "extratags": 1,
                 },
                 headers={"User-Agent": self.user_agent},
                 timeout=8,
@@ -199,13 +223,16 @@ class Nominatim:
         r_lon = float(r["lon"])
         display_name = r.get("display_name", query)
         place_type = r.get("type", r.get("class", ""))
+        qid = _qid(r)
 
         self.cache_conn.execute(
-            "INSERT OR REPLACE INTO nominatim_cache (key,lat,lon,display_name,place_type) VALUES (?,?,?,?,?)",
-            (key, r_lat, r_lon, display_name, place_type),
+            "INSERT OR REPLACE INTO nominatim_cache (key,lat,lon,display_name,place_type,wikidata) "
+            "VALUES (?,?,?,?,?,?)",
+            (key, r_lat, r_lon, display_name, place_type, qid),
         )
         self.cache_conn.commit()
-        return self._make_result(r_lat, r_lon, display_name, place_type)
+        return {**self._make_result(r_lat, r_lon, display_name, place_type),
+                "wikidata": qid, "_frage": frage}
 
     def alle_bounded(self, query: str, lat: float, lon: float, radius_km: float,
                      limit: int = 10) -> "list[dict] | None":
@@ -217,10 +244,12 @@ class Nominatim:
         → Liste (leer = nichts gefunden) oder None bei einem Fehler (nicht gemerkt).
         """
         key = _norm_key(f"alle2|{limit}|{lat:.3f},{lon:.3f},{radius_km:.1f}|{query}")
+        frage = ("alle", query, lat, lon, radius_km, limit)
         row = self.cache_conn.execute(
             "SELECT liste FROM nominatim_alle WHERE key=?", (key,)).fetchone()
         if row is not None:
-            return json.loads(row[0])
+            # Eintraege von vor v6.2 haben kein "wikidata": None = unbekannt.
+            return [{"wikidata": None, **r, "_frage": frage} for r in json.loads(row[0])]
 
         self._warte_takt()
         self.call_count += 1
@@ -231,7 +260,7 @@ class Nominatim:
             resp = requests.get(
                 f"{self.base_url}/search",
                 params={"q": query, "format": "json", "limit": limit, "addressdetails": 1,
-                        "viewbox": viewbox, "bounded": 1},
+                        "viewbox": viewbox, "bounded": 1, "extratags": 1},
                 headers={"User-Agent": self.user_agent},
                 timeout=8,
             )
@@ -246,12 +275,69 @@ class Nominatim:
         liste = [{**self._make_result(float(r["lat"]), float(r["lon"]), r.get("display_name", query),
                                       r.get("type", r.get("class", ""))),
                   "klasse": r.get("class", ""),
-                  "importance": float(r.get("importance") or 0.0)}
+                  "importance": float(r.get("importance") or 0.0),
+                  "wikidata": _qid(r)}
                  for r in (data or [])]
         self.cache_conn.execute("INSERT OR REPLACE INTO nominatim_alle (key, liste) VALUES (?, ?)",
                                 (key, json.dumps(liste, ensure_ascii=False)))
         self.cache_conn.commit()
-        return liste
+        return [{**r, "_frage": frage} for r in liste]
+
+    def wikidata_nachholen(self, treffer: dict) -> str:
+        """QID eines Treffers aus einem Cache-Eintrag von vor v6.2 nachholen.
+
+        Dieselbe Anfrage nochmals, diesmal mit extratags; uebernommen wird nur
+        die Kennung desselben Objekts (unter 50 m).  Die Koordinate bleibt die
+        gespeicherte — der Nachtrag darf kein Ergebnis veraendern.  Nur fuer
+        Treffer, die tatsaechlich verwendet werden: eine Anfrage je Objekt.
+        → QID oder '' (auch bei Fehlern; dann bleibt der Eintrag unbekannt).
+        """
+        if treffer.get("wikidata") is not None:
+            return treffer["wikidata"]
+        frage = treffer.get("_frage")
+        if not frage:
+            return ""
+        art, query = frage[0], frage[1]
+        params = {"q": query, "format": "json", "addressdetails": 1, "extratags": 1, "limit": 1}
+        if art in ("bounded", "alle"):
+            lat, lon, radius_km = frage[2], frage[3], frage[4]
+            delta_lat = radius_km / 111.0
+            delta_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
+            params.update(viewbox=f"{lon - delta_lon},{lat + delta_lat},{lon + delta_lon},{lat - delta_lat}",
+                          bounded=1)
+            if art == "alle":
+                params["limit"] = frage[5]
+        self._warte_takt()
+        self.call_count += 1
+        try:
+            data = requests.get(f"{self.base_url}/search", params=params,
+                                headers={"User-Agent": self.user_agent}, timeout=8).json()
+        except Exception as e:
+            self._last_error = str(e)
+            self.call_count -= 1
+            return ""
+        if not isinstance(data, list):
+            self._last_error = f"Nominatim-Fehlerantwort: {str(data)[:120]}"
+            return ""
+        gleich = [r for r in data
+                  if _abstand_m(float(r["lat"]), float(r["lon"]), treffer["lat"], treffer["lon"]) < 50]
+        qid = _qid(gleich[0]) if gleich else ""
+        if art == "alle":
+            key = _norm_key(f"alle2|{frage[5]}|{frage[2]:.3f},{frage[3]:.3f},{frage[4]:.1f}|{query}")
+            row = self.cache_conn.execute("SELECT liste FROM nominatim_alle WHERE key=?", (key,)).fetchone()
+            if row is not None:
+                liste = json.loads(row[0])
+                for r in liste:
+                    if _abstand_m(r["lat"], r["lon"], treffer["lat"], treffer["lon"]) < 1:
+                        r["wikidata"] = qid
+                self.cache_conn.execute("UPDATE nominatim_alle SET liste=? WHERE key=?",
+                                        (json.dumps(liste, ensure_ascii=False), key))
+        else:
+            key = (_norm_key(query) if art == "frei" else
+                   _norm_key(f"bounded|{frage[2]:.3f},{frage[3]:.3f},{frage[4]:.1f}|{query}"))
+            self.cache_conn.execute("UPDATE nominatim_cache SET wikidata=? WHERE key=?", (qid, key))
+        self.cache_conn.commit()
+        return qid
 
     def _make_result(self, lat, lon, display_name, place_type) -> dict:
         is_precise = place_type.lower() not in _CITY_TYPES

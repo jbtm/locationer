@@ -623,6 +623,41 @@ class GeoStack:
     _GEWAESSER_TGN = {"stream", "creek", "river", "lake", "reservoir", "canal", "lagoon", "bay",
                       "intermittent watercourse", "sea", "ocean", "pond"}
 
+    # ── Wikidata-Kennung (QID) des Treffers ──────────────────────────────────
+    # Gleiche QID = gleiches Motiv, ueber alle Sammlungen und Sprachen.  Die
+    # Kennung kommt aus der Quelle des Treffers, nie aus einer Namenssuche
+    # nach der Tat: GeoNames (eigene wkdt-Angabe, sonst P1566), TGN (P1667),
+    # OSM (Tag wikidata), Wikidata selbst.
+
+    # None = Wikidata-Fehler: das Ergebnis wird mit qid=None gemerkt und beim
+    # naechsten Treffer im geo_cache neu bestimmt (siehe _geocode, Step 1).
+    def _qid_geonames(self, geoname_id) -> "str | None":
+        q = self.geo_db.wikidata_id(geoname_id) if self.geo_db else ""
+        if not q and self.wikidata:
+            q = self.wikidata.qid_fuer("P1566", geoname_id)
+        return q
+
+    def _qid_tgn(self, tgn_id) -> "str | None":
+        return self.wikidata.qid_fuer("P1667", tgn_id) if self.wikidata else ""
+
+    def qid_ort(self, record: NormalizedRecord) -> str:
+        """QID der Stadt/Gemeinde — der endgueltigen, auch einer ergaenzten."""
+        if not record.city or not self.geo_db:
+            return ""
+        region = self._region(record)
+        row, _ = self.geo_db.find_city(record.city, region[0], region[1])
+        if row is None or (region[0] and row["country_code"] != region[0]):
+            return ""
+        # Wikidata fuehrt bei einer Stadt mal die Nummer des Ortspunkts (Chur),
+        # mal die der Gemeinde (Siena, Paris, Wädenswil); am anderen haengt oft
+        # nichts oder ein Bot-Eintrag.  Also beide fragen, der bekanntere gilt.
+        q = self._qid_geonames(row["geoname_id"])
+        gid = self.geo_db.gemeinde_id(row)
+        if gid and gid != row["geoname_id"]:
+            qg = self._qid_geonames(gid)
+            q = (self.wikidata.bekannter(q, qg) if self.wikidata else q or qg) or q or qg
+        return q or ""
+
     def _gewaesser(self, record: NormalizedRecord, region) -> bool:
         """Ist das Objekt ein Fluss, See, Kanal oder Meer — laut Quelle, nicht laut Name?"""
         if record.tgn_id and self.tgn_db:
@@ -732,6 +767,10 @@ class GeoStack:
             # (those entries produce Score 0 by design and should stay cached).
             if bbox_ok and cached.fallback and record.location:
                 bbox_ok = False  # force re-geocode
+            # Genauer Treffer von vor v6.2 ohne Wikidata-Kennung: neu bestimmen.
+            # Die Quellen sind selbst gecacht, die Koordinate bleibt dieselbe.
+            if bbox_ok and not cached.fallback and cached.qid is None:
+                bbox_ok = False
             # Der Cache-Schluessel kennt die Region nicht — also hier pruefen.
             if bbox_ok and not self._in_region(cached.lat, cached.lon, region):
                 bbox_ok = False
@@ -891,7 +930,7 @@ class GeoStack:
                     result = GeoResult(
                         lat=row["lat"], lon=row["lon"], quality_score=5,
                         fallback=False, source="geo_db", match_name=row["name"],
-                        ambiguous=city_ambiguous,
+                        ambiguous=city_ambiguous, qid=self._qid_geonames(row["geoname_id"]),
                     )
                     dbg.append(f"precise GEO DB: {row['name']} [{row['feature_class']}.{row['feature_code']}]")
                     return self._store(cache_key, result, dbg)
@@ -938,7 +977,7 @@ class GeoStack:
                         lat=tgn_lat, lon=tgn_lon, quality_score=5,
                         fallback=False, source="tgn",
                         match_name=tgn_row["pref_name"] or record.tgn_name,
-                        ambiguous=city_ambiguous,
+                        ambiguous=city_ambiguous, qid=self._qid_tgn(record.tgn_id),
                     )
                     dbg.append(f"TGN: {tgn_row['pref_name']} [{tgn_row['place_type']}] id={record.tgn_id}")
                     return self._store(cache_key, result, dbg)
@@ -963,7 +1002,7 @@ class GeoStack:
                     lat=crow["lat"], lon=crow["lon"], quality_score=5,
                     fallback=False, source="country_db",
                     match_name=crow["canonical_name"],
-                    ambiguous=city_ambiguous,
+                    ambiguous=city_ambiguous, qid="",
                 )
                 dbg.append(f"country_db precise: {crow['canonical_name']}")
                 return self._store(cache_key, result, dbg)
@@ -1048,7 +1087,7 @@ class GeoStack:
                     self.wd_count += 1
                     ext_result = {"lat": wd["lat"], "lon": wd["lon"],
                                   "name": wd["name"], "precise": True,
-                                  "source": "wikidata"}
+                                  "source": "wikidata", "wikidata": wd["qid"]}
                     dbg.append(f"Wikidata hit: {wd['name']} ({wd['qid']}) "
                                f"{wd['dist_km']:.1f} km vom Anker")
                 elif self.wikidata._last_error:
@@ -1161,6 +1200,9 @@ class GeoStack:
                     fallback=False, source=ext_result["source"],
                     match_name=ext_result["name"],
                     ambiguous=city_ambiguous,
+                    # None (Wikidata-Fehler) bleibt None: dann fragt der naechste Lauf nach.
+                    qid=(ext_result.get("wikidata") if quelle == "wikidata"
+                         else self.nominatim.wikidata_nachholen(ext_result)),
                 )
                 return self._store(cache_key, result, dbg)
 

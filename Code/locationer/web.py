@@ -670,6 +670,7 @@ const ERKL = {
   gitter: 'Unschärfe in Metern: in diesem Radius darf Pictomap das Bild um den Punkt streuen. 0 = genauer Punkt (Gebäude, Gipfel), 100 = Objekt gefunden, aber eine Fläche, mehr = nur der Ort ist bekannt (Radius nach Ortsgrösse). Leer = keine Koordinate.',
   score: '5 = Objekt in GeoNames, TGN oder Ortsnamen-Datenbank gefunden · 4 = Objekt über Wikidata oder OpenStreetMap gefunden · 3 = nur der Ort, Mittelpunkt aus GeoNames · 2 = nur der Ort, über OpenStreetMap · 0 = keine Koordinate.',
   bildtyp: 'Aus Titel und Beschreibung, nicht aus dem Bild: portrait = Person(en) als Motiv · group = gestelltes Gruppenbild · event = Fest, Umzug, Markt, Szene · view = Gebäude, Strasse, Platz, Ortsansicht, Innenraum · landscape = Natur, Berge, See, Küste · other = Fahrzeuge, Dokumente, Reproduktionen.',
+  wikidata: 'Feste Wikidata-Kennung des gefundenen Objekts (Wikidata) und des Orts (Wikidata-Ort). Gleiche Kennung = gleiches Motiv bzw. gleicher Ort, in jeder Sprache. Leer, wenn nur der Ort gefunden wurde oder die Quelle keine Kennung kennt.',
 };
 let ekKarte = null;
 $('#ek').addEventListener('submit', async ev => {
@@ -699,6 +700,8 @@ $('#ek').addEventListener('submit', async ev => {
     paar('Koordinaten', lat == null ? 'keine' : Number(lat).toFixed(5) + ', ' + Number(lon).toFixed(5));
     paar('Gitter', z['Gitter'] == null ? null : z['Gitter'] + ' m', ERKL.gitter);
     paar('Score', z['Coord-Quality-Score'], ERKL.score); paar('Bildtyp', z['Bildtyp'], ERKL.bildtyp);
+    const wd = q => q ? el('a', {href: 'https://www.wikidata.org/wiki/' + q, target: '_blank', rel: 'noopener'}, q) : null;
+    paar('Wikidata', wd(z['Wikidata']), ERKL.wikidata); paar('Wikidata-Ort', wd(z['Wikidata-Ort']));
     if (z['Ambiguous']) paar('Ort mehrdeutig', 'ja');
     if (z['Nachgefasst']) paar('Nachgefasst', z['Nachgefasst']);
     if (z['Widerspruch']) paar('Widerspruch', z['Widerspruch']);

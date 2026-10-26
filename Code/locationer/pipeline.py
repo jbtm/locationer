@@ -264,7 +264,7 @@ def _debug(i: int, total: int, rec: NormalizedRecord, geo: GeoResult, true: tupl
         print(f"  ▸ {step}")
     if geo.lat is not None:
         print(f"  → lat={geo.lat:.5f}  lon={geo.lon:.5f}  score={geo.quality_score}  fallback={geo.fallback}  source={geo.source}")
-        print(f"  → matched: {geo.match_name}")
+        print(f"  → matched: {geo.match_name}" + (f"  wikidata={geo.qid}" if geo.qid else ""))
         if true:
             km = _haversine_km(geo.lat, geo.lon, true[0], true[1])
             print(f"  → deviation: {km:.2f} km  (true: {true[0]:.5f}, {true[1]:.5f})")
@@ -675,6 +675,11 @@ def _process_chunk(
             "Widerspruch": rec.conflict,
             # Schritt 2: wer identifiziert hat und woher die Koordinate kommt.
             "Nachgefasst": rec.nachgefasst,
+            # Wikidata-Kennungen: gleiche QID = gleiches Motiv bzw. gleicher
+            # Ort, sprachunabhaengig.  Motiv nur bei einem gefundenen Objekt,
+            # Ort aus der endgueltigen Stadt (auch einer ergaenzten).
+            "Wikidata": (geo.qid or "") if (geo.lat is not None and not geo.fallback) else "",
+            "Wikidata-Ort": geostack.qid_ort(rec) if geo.lat is not None else "",
             "Ext-Calls": 1 if (geo.source in ("wikidata","nominatim") and geo.debug_info != ["cache hit"]) else 0,
         }
         if has_true_coords:

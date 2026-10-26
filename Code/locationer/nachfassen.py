@@ -182,7 +182,7 @@ class Nachfasser:
                         if d > max(_city_radius_km(ort) * 6, 15):
                             return None, f"Wikidata {qid} {d:.0f} km von {ort['name']} — pruefen"
                 return GeoResult(lat=lat, lon=lon, quality_score=4, fallback=False,
-                                 source="wikidata", match_name=name,
+                                 source="wikidata", match_name=name, qid=qid,
                                  debug_info=[f"nachgefasst: Opus {name!r}, Wikidata {qid}"]), f"Wikidata {qid}"
         g = self.geostack.geocode(anker)
         if g.lat is None:

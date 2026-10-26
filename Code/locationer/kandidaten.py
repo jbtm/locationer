@@ -223,7 +223,7 @@ class Kandidatenpruefer:
             alt = geos[k]
             geos[k] = GeoResult(lat=c["lat"], lon=c["lon"], quality_score=4, fallback=False,
                                 source="wikidata", match_name=c["label"] or rec.location,
-                                ambiguous=alt.ambiguous,
+                                ambiguous=alt.ambiguous, qid=c["qid"],
                                 debug_info=alt.debug_info + [
                                     f"Kandidat {c['label']!r} ({c['qid']}) bestaetigt: {ant.get('reason', '')}"])
             rec.nachgefasst = f"Kandidat: {c['label']} ({c['qid']})"

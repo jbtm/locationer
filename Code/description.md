@@ -1582,6 +1582,50 @@ Wädenswil, Mainz, Jerusalem; Cathédrale Alger vorher 8.6 km daneben; Hafen
 Bordeaux, Museum Neapel, Teatro Siracusa …), 4 genauer (Hafen Rorschach,
 Bahnhof Messina, Château Vichy), ein Verlust (Grande Mosquée Srinagar → Ortsmitte).
 
+### Nachtrag 2026-10-26 (v6.2.0): Wikidata-Kennungen für Motiv und Ort
+
+Statt einer eigenen Motiv-Datenbank speichert der Locationer die feste
+Wikidata-Kennung (QID) — gleiche QID = gleiches Motiv bzw. gleicher Ort,
+unabhängig von Sprache und Schreibweise. Zwei neue Ausgabespalten:
+
+- `Wikidata`: QID des gefundenen Objekts (nur Score 4–5, nicht bei Ortsmitte),
+  z.B. Martinskirche Chur = Q1421539.
+- `Wikidata-Ort`: QID der endgültigen Stadt/Gemeinde (auch einer ergänzten),
+  z.B. Chur = Q69007.
+
+**Herkunft — immer aus der Quelle des Treffers, nie aus einer Namenssuche
+danach:** Wikidata selbst (Suche, Kandidaten-Prüfung, Schritt 2); OSM über
+Nominatim `extratags` (Tag `wikidata`, gleiche Anfrage); GeoNames über die
+eigene `wkdt`-Angabe, sonst über Wikidata `haswbstatement:P1566=<Nummer>`;
+TGN über `P1667`. Einträge ohne „ist ein" (P31) zählen nicht (leere
+Bot-Einträge), bei mehreren gilt der mit den meisten Wikipedia-Artikeln.
+
+**Ort:** Wikidata führt bei einer Stadt mal die GeoNames-Nummer des
+Ortspunkts (Chur), mal die der Gemeinde (Siena, Paris, Wädenswil); am anderen
+hängt oft nichts oder ein Bot-Eintrag. Darum werden beide gefragt
+(`geo_db.gemeinde_id`, Ebene nach `GEMEINDE_EBENE`), der bekanntere gilt. Ein
+Dorf bekommt so die QID seiner Gemeinde (Dangio → Blenio).
+
+**Alte Cache-Einträge:** Genaue Treffer im `geo_cache` ohne QID werden neu
+bestimmt (Quellen sind gecacht). Nominatim-Treffer von vor v6.2 holen die QID
+mit einer zweiten Anfrage nach (`wikidata_nachholen`) — übernommen nur, wenn
+derselbe Punkt (< 50 m) zurückkommt; die Koordinate bleibt. Ein alter
+Wikidata-Treffer wird neu gefragt; scheitert das, gilt er weiter (QID
+unbekannt, beim nächsten Mal erneut).
+
+**Gemessen:** 2300 bekannte Zeilen mit denselben Haiku-Antworten: Koordinaten
+unverändert bis auf 5 Rundungsverschiebungen < 100 m. 1000 neue Zeilen (je 500
+ZIN/DISCO): QID beim Objekt 54 % (ZIN) bzw. 73 % (DISCO), beim Ort 84 % bzw.
+97 %. Stichprobe 40 + 40: alle QIDs gehören zum gefundenen Treffer. Neue
+Zeilen werden rund 20 % langsamer (Wikidata 1 Anfrage/s).
+
+Im selben Test v5.0.1 gegen v6.2 auf den 1000 neuen Zeilen (alle Abweichungen
+> 1 km einzeln beurteilt): 34 besser, 17 schlechter, davon 6 durch v6-Regeln —
+Pozzuoli Anfiteatro und „Musée de Naples" (Gattungswort), Niagara und
+Giessbach (Wasserfall heisst wie der Fluss → Fluss-Regel), Portaceli
+(Gemeinde-Prüfung), Obersee Näfels (Naturobjekt 3.4 km > 3 km). Beobachten,
+nicht einzeln korrigieren.
+
 ## Versionen
 
 Regel: MAJOR = Ergebnisse ändern sich grundlegend (Modell, Pipeline-Schritt),
@@ -1593,6 +1637,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.2.0 | 2026-10-26 | Neue Spalten `Wikidata` (Objekt) und `Wikidata-Ort` (Stadt/Gemeinde): feste QID aus der Quelle des Treffers (Wikidata, OSM, GeoNames, TGN); Koordinaten unverändert |
 | 6.1.0 | 2026-10-26 | Gattungswort-Objekte („Kirche Almens“) nur mit eindeutigem Treffer im Ort, sonst Ortsmitte; Ausnahme bei weit bedeutenderem Objekt |
 | 6.0.2 | 2026-10-25 | Einzelabfrage: Knopf „Logik“ zeigt das Debug-Protokoll (Haiku-Felder, jede Geostack-Station, Wikidata-Kandidaten mit Urteil, Triage/Opus); `api/orte` mit `"logik": true` |
 | 6.0.1 | 2026-10-25 | Einzelabfrage: Karte erscheint (Kreis erst nach dem Ausschnitt), ⓘ-Erklärungen zu Gitter, Score und Bildtyp |

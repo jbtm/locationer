@@ -122,6 +122,11 @@ ohne. **Vor jedem Deployment Version erhoehen, Zeile in description.md
 - Objekt der Form „<Wort> <Ort>" (z.B. „Kirche Almens"): Nominatim bis 10 Treffer; mehrere gleicher Art in der Gemeinde → Ortsmitte
 - Ausnahme: ein Treffer weit bedeutender (Nominatim importance ≥ 0.3 und ≥ 2× der nächste); Schalter `GATTUNG=0`, `BEDEUTEND=0`
 
+### Wikidata-Kennungen (seit v6.2.0)
+- Ausgabe `Wikidata` (Objekt, nur Score 4–5) und `Wikidata-Ort` (`GeoStack.qid_ort`, Ortspunkt und Gemeinde, der bekanntere)
+- Quelle des Treffers: Wikidata-QID, OSM `extratags` (`nominatim.wikidata_nachholen` für alte Cache-Einträge), GeoNames `wkdt` bzw. `Wikidata.qid_fuer("P1566", …)`, TGN `P1667`
+- `GeoResult.qid`: '' = keine, None = unbekannt (Fehler/alter Cache → wird neu bestimmt); Cache: `wikidata_ids`, Spalten `geo_cache.qid`, `nominatim_cache.wikidata`, `wikidata_cache.qid`
+
 ### Schritt 1.5 — Kandidaten-Prüfung (`locationer/kandidaten.py`)
 - Nicht-Porträts mit genanntem Objekt, aber ohne genauen Treffer (Ortsmitte oder nichts)
 - Kandidaten: Wikidata-Volltextsuche (genau + unscharf, nur mit P625, im Umkreis), gefiltert nach Land/Region/Gemeinde

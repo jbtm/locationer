@@ -187,6 +187,32 @@ class GeoDatabase:
         ).fetchone()
         return row["c"] if row else 0
 
+    def wikidata_id(self, geoname_id) -> str:
+        """Wikidata-Kennung aus GeoNames selbst (Alternativname mit Sprache „wkdt").
+
+        Nur ein Teil der Eintraege hat eine (Chur nicht) — den Rest findet
+        Wikidata.qid_fuer ueber die GeoNames-Nummer (P1566).
+        """
+        if not geoname_id:
+            return ""
+        row = self.conn.execute(
+            "SELECT alt_name FROM geo_alt_name WHERE geoname_id=? AND language_code='wkdt' LIMIT 1",
+            (geoname_id,)).fetchone()
+        return row["alt_name"] if row else ""
+
+    def gemeinde_id(self, row) -> "int | None":
+        """GeoNames-Nummer der Gemeinde (ADMn nach GEMEINDE_EBENE), zu der ein Ort gehoert."""
+        g = gemeinde_von(row)
+        if g is None:
+            return None
+        n = len(g) - 1
+        bed = " AND ".join(f"admin{k}=?" for k in range(1, n + 1))
+        r = self.conn.execute(
+            "SELECT geoname_id FROM geofeature INDEXED BY idx_geofeature_country_feature "
+            f"WHERE country_code=? AND feature_class='A' AND feature_code=? AND {bed} LIMIT 1",
+            (g[0], f"ADM{n}", *g[1:])).fetchone()
+        return r["geoname_id"] if r else None
+
     def find_precise(
         self,
         name: str,

@@ -80,6 +80,7 @@ class Cache:
             "ALTER TABLE geo_cache  ADD COLUMN location_hint TEXT",
             "ALTER TABLE geo_cache  ADD COLUMN city_hint TEXT",
             "ALTER TABLE geo_cache  ADD COLUMN country_hint TEXT",
+            "ALTER TABLE geo_cache  ADD COLUMN qid TEXT",
         ):
             try:
                 self.conn.execute(stmt)
@@ -132,7 +133,7 @@ class Cache:
 
     def get_geo(self, query: str) -> Optional[GeoResult]:
         row = self.conn.execute(
-            "SELECT lat,lon,quality_score,fallback,source,match_name,ambiguous "
+            "SELECT lat,lon,quality_score,fallback,source,match_name,ambiguous,qid "
             "FROM geo_cache WHERE key=?",
             (_key(query),),
         ).fetchone()
@@ -142,6 +143,7 @@ class Cache:
             lat=row[0], lon=row[1], quality_score=row[2],
             fallback=bool(row[3]), source=row[4], match_name=row[5],
             ambiguous=bool(row[6]) if row[6] is not None else False,
+            qid=row[7],
         )
 
     def set_geo(self, query: str, result: GeoResult,
@@ -149,13 +151,14 @@ class Cache:
         self.conn.execute(
             "INSERT OR REPLACE INTO geo_cache "
             "(key,lat,lon,quality_score,fallback,source,match_name,ambiguous,"
-            "location_hint,city_hint,country_hint) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "location_hint,city_hint,country_hint,qid) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 _key(query), result.lat, result.lon, result.quality_score,
                 int(result.fallback), result.source, result.match_name,
                 int(result.ambiguous),
                 location_hint or None, city_hint or None, country_hint or None,
+                result.qid,
             ),
         )
         self.conn.commit()
