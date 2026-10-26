@@ -25,6 +25,7 @@ import os
 import threading
 import time
 from contextlib import closing, redirect_stdout
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -348,7 +349,11 @@ def api_ergebnis(aid):
     if request.args.get("format") == "json":
         df = pd.read_csv(pfad, dtype=str, keep_default_na=False)
         return Response(df.to_json(orient="records", force_ascii=False), mimetype="application/json")
-    name = Path(row["name"]).stem + ("_teil" if pfad.name == "teilergebnis.csv" else "") + "_loc.csv"
+    # Wie die Kommandozeile: <Name>_loc-<Datum>.csv.  Fertig: Tag des Abschlusses, damit
+    # jeder Download gleich heisst; Teilergebnis: heute, es ist ein Zwischenstand.
+    teil = pfad.name == "teilergebnis.csv"
+    tag = date.today().isoformat() if teil else (row["beendet"] or R.jetzt())[:10]
+    name = Path(row["name"]).stem + ("_teil" if teil else "") + f"_loc-{tag}.csv"
     return send_file(pfad.resolve(), mimetype="text/csv", as_attachment=True, download_name=name)
 
 

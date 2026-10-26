@@ -1653,6 +1653,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.2.3 | 2026-10-26 | Download heisst wie bei der Kommandozeile `<Name>_loc-<Datum>.csv` (Datum des Abschlusses; Teilergebnis `<Name>_teil_loc-<heute>.csv`) |
 | 6.2.2 | 2026-10-26 | „Schwerpunkt (Bbox)“ heisst jetzt „Suchraum (Bbox)“ (er ist ein Zaun für Zeilen ohne Land, kein Schwerpunkt), mit ⓘ-Erklärung; Knopf „Auf Karte“ zeigt den Suchraum als Rechteck, zwei Klicks setzen einen neuen |
 | 6.2.1 | 2026-10-26 | tools.cronica.ch/loc: nur Einzelabfrage mit grosser Karte, Zugang mit Logik und Gastzugang mit Tageskontingent; Logo auf beiden Seiten |
 | 6.2.0 | 2026-10-26 | Neue Spalten `Wikidata` (Objekt) und `Wikidata-Ort` (Stadt/Gemeinde): feste QID aus der Quelle des Treffers (Wikidata, OSM, GeoNames, TGN); Koordinaten unverändert |
