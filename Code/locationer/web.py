@@ -25,7 +25,7 @@ import os
 import threading
 import time
 from contextlib import closing, redirect_stdout
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -138,8 +138,16 @@ def _fehler(text: str, code: int = 400):
     return jsonify({"fehler": text}), code
 
 
+def _mit_zone(x):
+    """Register-Zeiten sind Ortszeit des Servers (UTC) ohne Zone; mit Zone liest
+    der Browser sie richtig und zeigt sie in der Zeit des Betrachters."""
+    return datetime.fromisoformat(x).astimezone().isoformat(timespec="seconds") if x else x
+
+
 def _als_dict(row) -> dict:
     d = dict(row)
+    for k in ("erstellt", "gestartet", "beendet", "aktualisiert"):
+        d[k] = _mit_zone(d.get(k))
     d["schaetzung"] = json.loads(d["schaetzung"]) if d.get("schaetzung") else None
     d["bbox"] = json.loads(d["bbox"]) if d.get("bbox") else None
     a_dir = R.verzeichnis(d["id"])
@@ -258,6 +266,7 @@ def api_auftrag(aid):
         d = _als_dict(_auftrag_oder_404(conn, aid))
     log = R.verzeichnis(aid) / "protokoll.log"
     d["protokoll"] = log.read_text(encoding="utf-8").splitlines()[-40:] if log.exists() else []
+    d["zone"] = datetime.now().astimezone().strftime("%z")      # fuer die Zeiten im Protokoll
     return jsonify(d)
 
 
@@ -736,7 +745,7 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
     <h2>Aufträge</h2>
     <div class="wrap"><table>
       <thead><tr><th>Nr</th><th>Auftragsname</th><th>Datei</th><th>Erstellt</th><th>Zustand</th><th>Fortschritt</th><th class="z">Zeilen</th>
-        <th class="z">Kosten CHF</th><th class="z">Hochrechnung</th><th class="z">Grenze</th><th>Version</th></tr></thead>
+        <th class="z">Kosten CHF</th><th class="z">Hochrechnung CHF</th><th>Fertig ca.</th><th class="z">Grenze</th><th>Version</th></tr></thead>
       <tbody id="liste"></tbody>
     </table></div>
   </div>
@@ -745,7 +754,24 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
 let gewaehlt = null, liste = [], neuId = null;
 const entwurf = {};      // Auftrag → getippte Grenze, bis sie gespeichert ist
 const zahl = x => x == null ? '–' : String(x).replace(/\\B(?=(\\d{3})+(?!\\d))/g, "'");
-const zeit = x => x ? String(x).replace('T', ' ').slice(0, 16) : '–';
+const zeit = x => x ? new Date(x).toLocaleString('de-CH', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'}) : '–';
+const uhr = d => d.toLocaleTimeString('de-CH', {hour: '2-digit', minute: '2-digit'});
+// Fertig ca.: Tempo seit dem Start mal restliche Zeilen; nur solange der Auftrag läuft.
+function fertigCa(a) {
+  if (a.zustand !== 'läuft' || !a.gestartet || !a.erledigt || !a.zeilen) return null;
+  const jetzt = Date.now(), seit = jetzt - new Date(a.gestartet);
+  if (seit <= 0) return null;
+  const ende = new Date(jetzt + seit / a.erledigt * (a.zeilen - a.erledigt));
+  const tage = Math.round((new Date(ende).setHours(0, 0, 0, 0) - new Date(jetzt).setHours(0, 0, 0, 0)) / 86400000);
+  if (tage === 0) return 'heute ' + uhr(ende);
+  if (tage === 1) return 'morgen ' + uhr(ende);
+  return ende.toLocaleDateString('de-CH', {weekday: 'short', day: 'numeric', month: 'numeric'}) + ' ' + uhr(ende);
+}
+// Protokollzeilen beginnen mit Serverzeit ohne Zone → in Ortszeit des Betrachters.
+const protoZeit = (z, zone) => z.replace(/^(\\d{4}-\\d\\d-\\d\\d) (\\d\\d:\\d\\d:\\d\\d)/, (m, d, t) => {
+  const x = new Date(d + 'T' + t + (zone || '').replace(/(\\d\\d)(\\d\\d)$/, '$1:$2'));
+  return isNaN(x) ? m : x.toLocaleDateString('sv-SE') + ' ' + x.toLocaleTimeString('de-CH');
+});
 function dauer(von, bis) {
   if (!von) return '–';
   const s = Math.max(0, ((bis ? new Date(bis) : new Date()) - new Date(von)) / 1000);
@@ -764,6 +790,7 @@ function zeichneListe() {
       el('td', {}, el('div', {class: 'balken', title: anteil.toFixed(1) + ' %'}, el('i', {style: 'width:' + anteil + '%'}))),
       el('td', {class: 'z'}, zahl(a.erledigt) + ' / ' + zahl(a.zeilen)),
       el('td', {class: 'z'}, chf(a.chf)), el('td', {class: 'z'}, chf(a.hochrechnung_chf)),
+      el('td', {class: 'hinweis'}, fertigCa(a) || '–'),
       el('td', {class: 'z'}, chf(a.grenze_chf)), el('td', {class: 'hinweis'}, a.version || ''));
     tb.append(tr);
   }
@@ -785,8 +812,11 @@ async function aktion(pfad, body) {
   } catch (e) { $('#det_info').textContent = e.message; }
 }
 
+let protoStand = null;    // Scrollstand des Protokolls über das Neuzeichnen hinweg
 async function zeichneDetail() {
   const box = $('#detail');
+  const alt = $('#det_protokoll');
+  if (alt) protoStand = {id: gewaehlt, oben: alt.scrollTop, unten: alt.scrollTop + alt.clientHeight >= alt.scrollHeight - 4};
   if (gewaehlt == null) { box.hidden = true; return; }
   let a; try { a = await api('api/auftraege/' + gewaehlt); } catch (e) { box.hidden = true; return; }
   box.hidden = false; box.replaceChildren();
@@ -806,6 +836,7 @@ async function zeichneDetail() {
     el('dt', {}, 'Schätzung vorher'), el('dd', {}, s ? 'höchstens ' + chf(s.chf) + ' CHF' : '–'),
     el('dt', {}, 'Kosten bisher'), el('dd', {}, chf(a.chf) + ' CHF'),
     el('dt', {}, 'Hochrechnung'), el('dd', {}, a.hochrechnung_chf == null ? 'ab 1000 Zeilen' : chf(a.hochrechnung_chf) + ' CHF'),
+    el('dt', {}, 'Fertig ca.'), el('dd', {}, fertigCa(a) || '–'),
     el('dt', {}, 'Grenze'), el('dd', {}, chf(a.grenze_chf) + ' CHF'),
     el('dt', {}, 'Suchraum'), el('dd', {}, a.bbox ? a.bbox.join(', ') : 'ohne'),
     el('dt', {}, 'Version'), el('dd', {}, a.version || '–'));
@@ -832,7 +863,12 @@ async function zeichneDetail() {
   r.append(el('span', {class: 'hinweis', id: 'det_info'}));
   box.append(r);
   if (a.spalten) { box.append(el('h2', {style: 'margin-top:18px'}, 'Spalten')); box.append(el('pre', {}, a.spalten)); }
-  if (a.protokoll && a.protokoll.length) { box.append(el('h2', {style: 'margin-top:18px'}, 'Protokoll')); box.append(el('pre', {}, a.protokoll.join('\\n'))); }
+  if (a.protokoll && a.protokoll.length) {
+    // Bleibt unten, solange man unten ist; wer hochscrollt, um zu lesen, wird nicht zurückgerissen.
+    const p = el('pre', {id: 'det_protokoll'}, a.protokoll.map(z => protoZeit(z, a.zone)).join('\\n'));
+    box.append(el('h2', {style: 'margin-top:18px'}, 'Protokoll'), p);
+    p.scrollTop = protoStand && protoStand.id === a.id && !protoStand.unten ? protoStand.oben : p.scrollHeight;
+  }
 }
 
 async function laden() {

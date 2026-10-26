@@ -1667,6 +1667,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.2.6 | 2026-10-26 | GUI: Spalte „Fertig ca.“ neben der Hochrechnung; Zeiten in Ortszeit des Betrachters (Register und Protokoll sind Server-UTC), Rechenzeit stimmt; Protokoll bleibt unten |
 | 6.2.5 | 2026-10-26 | GUI: getippte Grenze springt nicht mehr zurück; Meldung nach dem Hochladen zeigt das Prüfergebnis; „Zeilen“ mit neuen/verschiedenen, „Schätzung vorher“ nur der Betrag; Einzelabfrage aufklappbar |
 | 6.2.4 | 2026-10-26 | Feld „Name“ heisst „Auftragsname“; Download nach dem Dateinamen: `<Datei>_loc-<Datum>.csv` |
 | 6.2.3 | 2026-10-26 | Download heisst wie bei der Kommandozeile `<Name>_loc-<Datum>.csv` (Datum des Abschlusses; Teilergebnis `<Name>_teil_loc-<heute>.csv`) |
