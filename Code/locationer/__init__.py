@@ -11,7 +11,7 @@ haelt fest, mit welcher Version er gerechnet wurde (auftrag.json).
 import subprocess
 from pathlib import Path
 
-VERSION = "6.2.3"
+VERSION = "6.2.4"
 VERSION_DATUM = "2026-10-26"
 
 

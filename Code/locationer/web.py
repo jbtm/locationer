@@ -353,7 +353,8 @@ def api_ergebnis(aid):
     # jeder Download gleich heisst; Teilergebnis: heute, es ist ein Zwischenstand.
     teil = pfad.name == "teilergebnis.csv"
     tag = date.today().isoformat() if teil else (row["beendet"] or R.jetzt())[:10]
-    name = Path(row["name"]).stem + ("_teil" if teil else "") + f"_loc-{tag}.csv"
+    # Nach der Datei, nicht nach dem Auftragsnamen (Dec 2026-10-26); JSON-Auftraege haben keine.
+    name = Path(row["datei"] or row["name"]).stem + ("_teil" if teil else "") + f"_loc-{tag}.csv"
     return send_file(pfad.resolve(), mimetype="text/csv", as_attachment=True, download_name=name)
 
 
@@ -683,7 +684,7 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
     <form id="neu">
       <div class="raster">
         <div><label for="datei">Datei (CSV oder XLSX)</label><input type="file" id="datei" name="datei" accept=".csv,.xlsx,.xls" required></div>
-        <div><label for="name">Name</label><input type="text" id="name" name="name" placeholder="wie die Datei"></div>
+        <div><label for="name">Auftragsname</label><input type="text" id="name" name="name" placeholder="wie die Datei"></div>
         <div><label for="grenze">Kostengrenze CHF</label><input type="text" id="grenze" name="grenze_chf" value="{{ '%g' % grenze }}" required></div>
         <div><label for="bbox">Suchraum (Bbox) <button type="button" class="info" id="sr_info" aria-label="Suchraum erklären">i</button>
              <button type="button" id="sr_knopf" class="klein" aria-expanded="false">Auf Karte</button></label>
@@ -728,7 +729,7 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
   <div class="karte">
     <h2>Aufträge</h2>
     <div class="wrap"><table>
-      <thead><tr><th>Nr</th><th>Name</th><th>Datei</th><th>Erstellt</th><th>Zustand</th><th>Fortschritt</th><th class="z">Zeilen</th>
+      <thead><tr><th>Nr</th><th>Auftragsname</th><th>Datei</th><th>Erstellt</th><th>Zustand</th><th>Fortschritt</th><th class="z">Zeilen</th>
         <th class="z">Kosten CHF</th><th class="z">Hochrechnung</th><th class="z">Grenze</th><th>Version</th></tr></thead>
       <tbody id="liste"></tbody>
     </table></div>
