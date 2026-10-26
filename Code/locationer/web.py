@@ -655,6 +655,9 @@ textarea{width:100%;padding:7px 9px;border:1px solid var(--lin);border-radius:5p
 .zwei{display:grid;gap:18px;grid-template-columns:1fr 1fr;margin-top:14px}
 @media(max-width:820px){.zwei{grid-template-columns:1fr}}
 #ek_karte{height:300px;border-radius:6px;border:1px solid var(--lin)}
+#sr_karte{height:380px;border-radius:6px;border:1px solid var(--lin)}
+#sr_karte.zeichnen{cursor:crosshair}
+button.klein{padding:0 8px;font-size:12px;margin-left:6px}
 .kopf{display:flex;align-items:baseline;gap:12px} .kopf h2{margin-bottom:14px} .kopf button{margin-left:auto}
 button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,serif;color:var(--akz);border-color:var(--akz);background:var(--kar);vertical-align:1px}
 .erkl{margin-top:4px;max-width:46ch}
@@ -677,7 +680,20 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
         <div><label for="datei">Datei (CSV oder XLSX)</label><input type="file" id="datei" name="datei" accept=".csv,.xlsx,.xls" required></div>
         <div><label for="name">Name</label><input type="text" id="name" name="name" placeholder="wie die Datei"></div>
         <div><label for="grenze">Kostengrenze CHF</label><input type="text" id="grenze" name="grenze_chf" value="{{ '%g' % grenze }}" required></div>
-        <div><label for="bbox">Schwerpunkt (Bbox)</label><input type="text" id="bbox" name="bbox" value="{{ bbox }}" placeholder="min_lat,max_lat,min_lon,max_lon · - = ohne"></div>
+        <div><label for="bbox">Suchraum (Bbox) <button type="button" class="info" id="sr_info" aria-label="Suchraum erklären">i</button>
+             <button type="button" id="sr_knopf" class="klein" aria-expanded="false">Auf Karte</button></label>
+             <input type="text" id="bbox" name="bbox" value="{{ bbox }}" placeholder="min_lat,max_lat,min_lon,max_lon · - = ohne"></div>
+      </div>
+      <p class="hinweis erkl" id="sr_erkl" hidden style="max-width:none">Gilt nur für Zeilen, bei denen kein Land erkannt wird:
+        dann werden Treffer ausserhalb des Suchraums verworfen, und bei mehrdeutigen Berg-, See- und Passnamen gewinnt der
+        Treffer nahe der Mitte. Mit erkanntem Land spielt der Suchraum keine Rolle. „-“ = ohne Suchraum.</p>
+      <div id="sr_panel" hidden style="margin-top:14px">
+        <div id="sr_karte"></div>
+        <div class="reihe" style="margin-top:8px">
+          <button type="button" id="sr_neu">Neu zeichnen</button>
+          <button type="button" id="sr_vorgabe">Vorgabe</button>
+          <button type="button" id="sr_ohne">Ohne Suchraum</button>
+          <span class="hinweis" id="sr_hinweis"></span></div>
       </div>
       <div class="reihe"><button class="haupt" type="submit" id="hoch">Hochladen und prüfen</button>
         <span class="hinweis" id="neu_info">Nach der Prüfung siehst du Spalten und geschätzte Kosten, dann startest du.</span></div>
@@ -693,7 +709,7 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
         <div><label for="ek_beschr">Beschreibung (optional)</label><textarea id="ek_beschr" rows="2"></textarea></div>
       </div>
       <div class="reihe"><button class="haupt" type="submit" id="ek_los">Ort suchen</button>
-        <span class="hinweis" id="ek_info">Dieselbe Auswertung wie eine Zeile in einer CSV-Datei, mit der Bbox aus „Neuer Auftrag“.</span></div>
+        <span class="hinweis" id="ek_info">Dieselbe Auswertung wie eine Zeile in einer CSV-Datei, mit dem Suchraum aus „Neuer Auftrag“.</span></div>
     </form>
     <div class="zwei" id="ek_erg" hidden><dl id="ek_dl"></dl><div id="ek_karte"></div></div>
     <div class="reihe" id="ek_logik_reihe" hidden>
@@ -776,7 +792,7 @@ async function zeichneDetail() {
     el('dt', {}, 'Kosten bisher'), el('dd', {}, chf(a.chf) + ' CHF'),
     el('dt', {}, 'Hochrechnung'), el('dd', {}, a.hochrechnung_chf == null ? 'ab 1000 Zeilen' : chf(a.hochrechnung_chf) + ' CHF'),
     el('dt', {}, 'Grenze'), el('dd', {}, chf(a.grenze_chf) + ' CHF'),
-    el('dt', {}, 'Bbox'), el('dd', {}, a.bbox ? a.bbox.join(', ') : 'ohne'),
+    el('dt', {}, 'Suchraum'), el('dd', {}, a.bbox ? a.bbox.join(', ') : 'ohne'),
     el('dt', {}, 'Version'), el('dd', {}, a.version || '–'));
   box.append(dl);
   const r = el('div', {class: 'reihe'});
@@ -819,7 +835,7 @@ $('#neu').addEventListener('submit', async ev => {
   try {
     const a = await api('api/auftraege', {method: 'POST', body: fd});
     $('#neu_info').textContent = 'Auftrag ' + a.id + ' angelegt — wird geprüft.';
-    $('#neu').reset(); $('#grenze').value = '{{ '%g' % grenze }}'; $('#bbox').value = '{{ bbox }}';
+    $('#neu').reset(); $('#grenze').value = '{{ '%g' % grenze }}'; $('#bbox').value = '{{ bbox }}'; if (srKarte) srZeigen();
     gewaehlt = a.id; await laden();
   } catch (e) { $('#neu_info').textContent = e.message; }
   $('#hoch').disabled = false;
@@ -856,6 +872,57 @@ $('#ek_logik_knopf').addEventListener('click', ev => {
   const pre = $('#ek_logik'); pre.hidden = !pre.hidden;
   ev.currentTarget.setAttribute('aria-expanded', String(!pre.hidden));
 });
+
+// ── Suchraum auf der Karte: zwei Klicks setzen zwei Ecken (geht auch auf dem Telefon,
+// und Ziehen bleibt fürs Verschieben der Karte).
+const SR_VORGABE = '{{ bbox }}';
+let srKarte = null, srRechteck = null, srEcke = null, srZeichnen = false;
+const srLesen = t => {
+  const z = String(t).split(',').map(x => parseFloat(x));
+  return z.length === 4 && z.every(Number.isFinite) ? L.latLngBounds([z[0], z[2]], [z[1], z[3]]) : null;
+};
+const srText = b => [b.getSouth(), b.getNorth(), b.getWest(), b.getEast()].map(x => x.toFixed(2)).join(',');
+function srModus(an) {
+  srZeichnen = an; srEcke = null;
+  $('#sr_karte').classList.toggle('zeichnen', an);
+  $('#sr_hinweis').textContent = an ? 'Erste Ecke anklicken …' : 'Karte verschieben und zoomen wie gewohnt.';
+}
+function srZeigen() {
+  if (srRechteck) { srKarte.removeLayer(srRechteck); srRechteck = null; }
+  const b = srLesen($('#bbox').value);
+  if (b) { srRechteck = L.rectangle(b, {weight: 2, color: '#1f6f5c', fillOpacity: .08}).addTo(srKarte); srKarte.fitBounds(b.pad(.15)); }
+  else srKarte.setView([48, 8], 4);
+}
+$('#sr_info').addEventListener('click', () => { $('#sr_erkl').hidden = !$('#sr_erkl').hidden; });
+$('#sr_knopf').addEventListener('click', ev => {
+  const p = $('#sr_panel'); p.hidden = !p.hidden;
+  ev.currentTarget.setAttribute('aria-expanded', String(!p.hidden));
+  if (p.hidden) return;
+  if (!srKarte) {
+    srKarte = L.map('sr_karte');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(srKarte);
+    srKarte.on('click', e => {
+      if (!srZeichnen) return;
+      if (!srEcke) {
+        srEcke = e.latlng;
+        if (srRechteck) srKarte.removeLayer(srRechteck);
+        srRechteck = L.rectangle(L.latLngBounds(srEcke, srEcke), {weight: 2, color: '#1f6f5c', dashArray: '4', fillOpacity: .05}).addTo(srKarte);
+        $('#sr_hinweis').textContent = 'Zweite Ecke anklicken …';
+      } else {
+        $('#bbox').value = srText(L.latLngBounds(srEcke, e.latlng));
+        srModus(false); srZeigen();
+        $('#sr_hinweis').textContent = 'Übernommen: ' + $('#bbox').value;
+      }
+    });
+    srKarte.on('mousemove', e => { if (srZeichnen && srEcke && srRechteck) srRechteck.setBounds(L.latLngBounds(srEcke, e.latlng)); });
+  }
+  srKarte.invalidateSize(); srZeigen(); srModus(false);
+});
+$('#sr_neu').addEventListener('click', () => srModus(true));
+$('#sr_vorgabe').addEventListener('click', () => { $('#bbox').value = SR_VORGABE; srModus(false); srZeigen(); });
+$('#sr_ohne').addEventListener('click', () => { $('#bbox').value = '-'; srModus(false); srZeigen(); $('#sr_hinweis').textContent = 'Ohne Suchraum.'; });
+$('#bbox').addEventListener('input', () => { if (srKarte && !$('#sr_panel').hidden) srZeigen(); });
 
 laden(); setInterval(laden, 4000);
 </script>"""
