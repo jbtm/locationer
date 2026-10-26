@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS ausgaben (
     tag  TEXT PRIMARY KEY,
     usd  REAL NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS gast_ausgaben (    -- /loc, Gastzugang; in CHF
+    tag  TEXT PRIMARY KEY,
+    chf  REAL NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS einstellung (
     name  TEXT PRIMARY KEY,
     wert  TEXT NOT NULL
@@ -99,6 +103,21 @@ def ausgabe_buchen(conn, usd: float) -> None:
                  "ON CONFLICT(tag) DO UPDATE SET usd = usd + excluded.usd",
                  (date.today().isoformat(), usd))
     conn.commit()
+
+
+def gast_buchen(conn, chf: float) -> None:
+    """Gaeste auf /loc: eigener Topf, zusaetzlich zu den Tagesausgaben (die bucht _orte)."""
+    if chf <= 0:
+        return
+    conn.execute("INSERT INTO gast_ausgaben (tag, chf) VALUES (?, ?) "
+                 "ON CONFLICT(tag) DO UPDATE SET chf = chf + excluded.chf",
+                 (date.today().isoformat(), chf))
+    conn.commit()
+
+
+def gast_heute_chf(conn) -> float:
+    r = conn.execute("SELECT chf FROM gast_ausgaben WHERE tag=?", (date.today().isoformat(),)).fetchone()
+    return r["chf"] if r else 0.0
 
 
 def heute_chf(conn) -> float:

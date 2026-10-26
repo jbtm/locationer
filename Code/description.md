@@ -1582,6 +1582,22 @@ Wädenswil, Mainz, Jerusalem; Cathédrale Alger vorher 8.6 km daneben; Hafen
 Bordeaux, Museum Neapel, Teatro Siracusa …), 4 genauer (Hafen Rorschach,
 Bahnhof Messina, Château Vichy), ein Verlust (Grande Mosquée Srinagar → Ortsmitte).
 
+### Nachtrag 2026-10-26 (v6.2.1): tools.cronica.ch/loc
+
+Schlanke Seite nur mit der Einzelabfrage und grosser Karte, im selben Dienst
+wie /locationer (dieselbe Pipeline, derselbe Cache, dieselbe Kasse — keine
+Datenkopie). nginx leitet `/loc/` unverändert an Port 5006 weiter
+(`server/nginx-locationer.conf`).
+
+- Zwei Zugänge, eigenes Cookie `loc` (Pfad `/loc/`, 30 Tage):
+  `LOC_PASSWORT` mit Knopf „Logik“ und Kostenanzeige, `LOC_GAST_PASSWORT`
+  ohne beides. Das Cookie trägt einen Abdruck des Passworts: Passwort in der
+  `.env` ändern meldet alle ab.
+- Gäste zusammen höchstens `LOC_GAST_TAG_CHF` (Vorgabe 1) pro Tag, Tabelle
+  `gast_ausgaben` im Register; die Tagesgrenze aller Aufträge gilt zusätzlich.
+- Immer die Bbox aus `COLLECTION_BBOX`; eine Zeile pro Anfrage (`/loc/api/ort`).
+- Logo (`/static/logo.png`, dieselbe Datei wie /layer) jetzt auch auf /locationer.
+
 ### Nachtrag 2026-10-26 (v6.2.0): Wikidata-Kennungen für Motiv und Ort
 
 Statt einer eigenen Motiv-Datenbank speichert der Locationer die feste
@@ -1637,6 +1653,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.2.1 | 2026-10-26 | tools.cronica.ch/loc: nur Einzelabfrage mit grosser Karte, Zugang mit Logik und Gastzugang mit Tageskontingent; Logo auf beiden Seiten |
 | 6.2.0 | 2026-10-26 | Neue Spalten `Wikidata` (Objekt) und `Wikidata-Ort` (Stadt/Gemeinde): feste QID aus der Quelle des Treffers (Wikidata, OSM, GeoNames, TGN); Koordinaten unverändert |
 | 6.1.0 | 2026-10-26 | Gattungswort-Objekte („Kirche Almens“) nur mit eindeutigem Treffer im Ort, sonst Ortsmitte; Ausnahme bei weit bedeutenderem Objekt |
 | 6.0.2 | 2026-10-25 | Einzelabfrage: Knopf „Logik“ zeigt das Debug-Protokoll (Haiku-Felder, jede Geostack-Station, Wikidata-Kandidaten mit Urteil, Triage/Opus); `api/orte` mit `"logik": true` |

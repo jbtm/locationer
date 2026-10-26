@@ -97,7 +97,8 @@ derselbe Befehl setzt fort (nach voller Pruefung). Parameter: `--mode`, `--limit
 ## Server (tools.cronica.ch/locationer)
 
 `web.py` (Seite + API, gunicorn Port 5006) und `worker.py` (rechnet), beide aus
-`/opt/pictomap-tools/locationer`. Auftragsliste `register.py`, Kostenkasse
+`/opt/pictomap-tools/locationer`. `/loc/` (gleiche App): nur Einzelabfrage, Zugaenge `LOC_PASSWORT` / `LOC_GAST_PASSWORT`.
+Auftragsliste `register.py`, Kostenkasse
 `kasse.py`. Dateien fuer systemd/nginx/.env in `server/`. Details und API:
 description.md, Nachtrag 2026-10-25.
 

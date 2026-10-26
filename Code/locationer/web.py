@@ -10,14 +10,20 @@ Anmeldung: Seite mit Passwort (LOCATIONER_PASSWORT), API mit Schluessel im
 Kopf `Authorization: Bearer <LOCATIONER_API_TOKEN>`.  Ist kein Passwort
 gesetzt, verweigert die Seite den Dienst — ausser LOCATIONER_OFFEN=1 (nur lokal).
 
+/loc/ (tools.cronica.ch/loc): nur die Einzelabfrage, grosse Karte.  Zwei
+Zugaenge mit eigenem Cookie: LOC_PASSWORT (mit Logik) und LOC_GAST_PASSWORT
+(ohne Logik, alle Gaeste zusammen hoechstens LOC_GAST_TAG_CHF pro Tag).
+
 Relative Pfade sind Pflicht (wie bei LayerCurator): die App haengt unter
 `/locationer/`; jeder fetch() im JavaScript ist relativ.
 """
+import hashlib
 import hmac
 import io
 import json
 import os
 import threading
+import time
 from contextlib import closing, redirect_stdout
 from pathlib import Path
 
@@ -25,6 +31,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from flask import (Flask, Response, abort, jsonify, redirect, render_template_string, request,
                    send_file, session, url_for)
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 load_dotenv(".env")
 
@@ -38,6 +45,9 @@ PASSWORT = os.getenv("LOCATIONER_PASSWORT", "")
 API_TOKEN = os.getenv("LOCATIONER_API_TOKEN", "")
 OFFEN = os.getenv("LOCATIONER_OFFEN", "") == "1"
 GRENZE_VORGABE = float(os.getenv("LOCATIONER_GRENZE_CHF", "20"))
+LOC_PASSWORT = os.getenv("LOC_PASSWORT", "")
+LOC_GAST_PASSWORT = os.getenv("LOC_GAST_PASSWORT", "")
+LOC_GAST_TAG_CHF = float(os.getenv("LOC_GAST_TAG_CHF", "1"))
 ORTE_MAX = 50
 ENDUNGEN = {".csv", ".xlsx", ".xls"}
 
@@ -76,6 +86,8 @@ def _api_schluessel_ok() -> bool:
 def wache():
     if request.endpoint in ("login", "static"):
         return None
+    if request.path == "/loc" or request.path.startswith("/loc/"):
+        return None             # eigene Wache mit eigenem Cookie: _loc_rolle()
     if not PASSWORT and not OFFEN:
         return Response("LOCATIONER_PASSWORT ist nicht gesetzt — Dienst gesperrt.", 503)
     if OFFEN and not PASSWORT:
@@ -352,7 +364,6 @@ def api_orte():
     Station im Geostack, Kandidaten, Nachfassen) — fuer den Knopf „Logik" in
     der Einzelabfrage.  Dieselbe Pipeline; der Debug-Modus druckt nur mehr.
     """
-    from .pipeline import Umgebung, paket
     daten = request.get_json(silent=True) or {}
     zeilen = daten.get("zeilen")
     if not isinstance(zeilen, list) or not zeilen or not all(isinstance(z, dict) for z in zeilen):
@@ -365,9 +376,15 @@ def api_orte():
         halt = R.tagesgrenze_erreicht(conn)
     if halt:
         return _fehler(halt, 429)
+    antwort, _ = _orte(zeilen, bbox, bool(daten.get("logik")))
+    return jsonify(antwort)
+
+
+def _orte(zeilen: list, bbox, logik: bool) -> "tuple[dict, float]":
+    """Rechnet Zeilen sofort durch die Pipeline; gibt Antwort und Kosten in CHF."""
+    from .pipeline import Umgebung, paket
     df = pd.DataFrame(zeilen)
     kasse = Kasse()
-    logik = bool(daten.get("logik"))
     protokoll = io.StringIO()
     with _SOFORT:
         u = Umgebung(kasse=kasse, bbox=bbox, mode="debug" if logik else "human", fortschritt=False)
@@ -384,10 +401,182 @@ def api_orte():
     antwort = {"zeilen": out.to_dict("records"), "verdacht": verdacht, "kosten_chf": round(kasse.chf, 4)}
     if logik:
         antwort["logik"] = protokoll.getvalue().strip("\n")
+    return antwort, kasse.chf
+
+
+# ── /loc: nur die Einzelabfrage ───────────────────────────────────────────────
+# Eigenes Cookie mit Pfad /loc/, damit es sich nicht mit der Sitzung von
+# /locationer kreuzt.  Es traegt den Fingerabdruck des Passworts: wird das
+# Passwort in der .env geaendert, sind alte Anmeldungen ungueltig.
+_LOC_COOKIE = "loc"
+_LOC_TAGE = 30
+
+
+def _loc_signer():
+    return URLSafeTimedSerializer(app.secret_key, salt="loc")
+
+
+def _loc_abdruck(pw: str) -> str:
+    return hashlib.sha256(("loc:" + pw).encode()).hexdigest()[:16]
+
+
+def _loc_rolle() -> str:
+    """'voll' (mit Logik), 'gast' oder '' (nicht angemeldet)."""
+    roh = request.cookies.get(_LOC_COOKIE)
+    if not roh:
+        return ""
+    try:
+        d = _loc_signer().loads(roh, max_age=_LOC_TAGE * 86400)
+    except BadSignature:
+        return ""
+    pw = {"voll": LOC_PASSWORT, "gast": LOC_GAST_PASSWORT}.get(d.get("r"), "")
+    return d["r"] if pw and hmac.compare_digest(d.get("p", ""), _loc_abdruck(pw)) else ""
+
+
+@app.route("/loc/", methods=["GET"])
+def loc_start():
+    rolle = _loc_rolle()
+    if not rolle:
+        return redirect(url_for("loc_login"))
+    return render_template_string(SEITE_LOC, logik=(rolle == "voll"), version=version_text())
+
+
+@app.route("/loc/login", methods=["GET", "POST"])
+def loc_login():
+    fehler = None
+    if request.method == "POST":
+        ein = request.form.get("passwort", "").encode()
+        rolle = next((r for r, pw in (("voll", LOC_PASSWORT), ("gast", LOC_GAST_PASSWORT))
+                      if pw and hmac.compare_digest(ein, pw.encode())), "")
+        if rolle:
+            pw = LOC_PASSWORT if rolle == "voll" else LOC_GAST_PASSWORT
+            antwort = redirect(url_for("loc_start"))
+            antwort.set_cookie(_LOC_COOKIE, _loc_signer().dumps({"r": rolle, "p": _loc_abdruck(pw)}),
+                               max_age=_LOC_TAGE * 86400, path=request.script_root + "/loc/",
+                               secure=not OFFEN, httponly=True, samesite="Lax")
+            return antwort
+        time.sleep(1)           # bremst das Durchprobieren
+        fehler = "Falsches Passwort."
+    return render_template_string(SEITE_LOC_LOGIN, fehler=fehler, version=version_text())
+
+
+@app.route("/loc/logout", methods=["POST"])
+def loc_logout():
+    antwort = redirect(url_for("loc_login"))
+    antwort.delete_cookie(_LOC_COOKIE, path=request.script_root + "/loc/")
+    return antwort
+
+
+@app.route("/loc/api/ort", methods=["POST"])
+def loc_api_ort():
+    """Eine Zeile: {"title": …, "description": …}; Logik nur mit dem vollen Zugang."""
+    rolle = _loc_rolle()
+    if not rolle:
+        return _fehler("nicht angemeldet", 401)
+    daten = request.get_json(silent=True) or {}
+    titel = str(daten.get("title") or "").strip()[:500]
+    beschr = str(daten.get("description") or "").strip()[:2000]
+    if not titel:
+        return _fehler("Titel fehlt")
+    with _db() as conn:
+        halt = R.tagesgrenze_erreicht(conn)
+        if not halt and rolle == "gast" and R.gast_heute_chf(conn) >= LOC_GAST_TAG_CHF:
+            halt = "Das Kontingent für Gäste ist für heute aufgebraucht — morgen geht es wieder."
+    if halt:
+        return _fehler(halt, 429)
+    antwort, chf = _orte([{"title": titel, "description": beschr}], _COLLECTION_BBOX, rolle == "voll")
+    if rolle == "gast":
+        with _db() as conn:
+            R.gast_buchen(conn, chf)
+        antwort.pop("kosten_chf", None)
     return jsonify(antwort)
 
 
 # ── Vorlagen ──────────────────────────────────────────────────────────────────
+# Gemeinsam fuer /locationer und /loc: Hilfen und die Anzeige einer Einzelabfrage.
+GRUND_JS = """
+const $ = s => document.querySelector(s);
+const chf = x => x == null ? '–' : Number(x).toFixed(2);
+
+function el(tag, attrs = {}, ...kinder) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const k of kinder) if (k != null) e.append(k.nodeType ? k : String(k));
+  return e;
+}
+
+async function api(pfad, opt = {}) {
+  const r = await fetch(pfad, opt);
+  let d = null; try { d = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error((d && d.fehler) || ('HTTP ' + r.status));
+  return d;
+}
+"""
+
+EK_JS = """
+const ERKL = {
+  gitter: 'Unschärfe in Metern: in diesem Radius darf Pictomap das Bild um den Punkt streuen. 0 = genauer Punkt (Gebäude, Gipfel), 100 = Objekt gefunden, aber eine Fläche, mehr = nur der Ort ist bekannt (Radius nach Ortsgrösse). Leer = keine Koordinate.',
+  score: '5 = Objekt in GeoNames, TGN oder Ortsnamen-Datenbank gefunden · 4 = Objekt über Wikidata oder OpenStreetMap gefunden · 3 = nur der Ort, Mittelpunkt aus GeoNames · 2 = nur der Ort, über OpenStreetMap · 0 = keine Koordinate.',
+  bildtyp: 'Aus Titel und Beschreibung, nicht aus dem Bild: portrait = Person(en) als Motiv · group = gestelltes Gruppenbild · event = Fest, Umzug, Markt, Szene · view = Gebäude, Strasse, Platz, Ortsansicht, Innenraum · landscape = Natur, Berge, See, Küste · other = Fahrzeuge, Dokumente, Reproduktionen.',
+  wikidata: 'Feste Wikidata-Kennung des gefundenen Objekts (Wikidata) und des Orts (Wikidata-Ort). Gleiche Kennung = gleiches Motiv bzw. gleicher Ort, in jeder Sprache. Leer, wenn nur der Ort gefunden wurde oder die Quelle keine Kennung kennt.',
+};
+let ekKarte = null;
+
+// Zeigt die Antwort von /api/orte bzw. /loc/api/ort in #ek_dl, #ek_karte und #ek_logik.
+function zeigeOrt(d) {
+  if (d.logik != null && $('#ek_logik')) {
+    $('#ek_logik').textContent = d.logik || '(kein Protokoll)';
+    $('#ek_logik_reihe').hidden = false;
+  }
+  const z = d.zeilen[0], lat = z['Breitengrad'], lon = z['Längengrad'];
+  const dl = $('#ek_dl'); dl.replaceChildren();
+  const paar = (k, v, info) => {
+    const dd = el('dd', {}, v == null || v === '' ? '–' : v);
+    const dt = el('dt', {}, k);
+    if (info) {
+      // ⓘ klappt die Erklärung auf — ein title-Tooltip ginge auf dem Telefon nicht.
+      const txt = el('div', {class: 'hinweis erkl', hidden: ''}, info);
+      dt.append(' ', el('button', {type: 'button', class: 'info', 'aria-label': k + ' erklären',
+        onclick: () => { txt.hidden = !txt.hidden; }}, 'i'));
+      dd.append(txt);
+    }
+    dl.append(dt, dd);
+  };
+  paar('Titel', z['Name']); paar('Land', z['Land']); paar('Region', z['Region']); paar('Ort', z['Stadt/Ort']);
+  paar('Koordinaten', lat == null ? 'keine' : Number(lat).toFixed(5) + ', ' + Number(lon).toFixed(5));
+  paar('Gitter', z['Gitter'] == null ? null : z['Gitter'] + ' m', ERKL.gitter);
+  paar('Score', z['Coord-Quality-Score'], ERKL.score); paar('Bildtyp', z['Bildtyp'], ERKL.bildtyp);
+  const wd = q => q ? el('a', {href: 'https://www.wikidata.org/wiki/' + q, target: '_blank', rel: 'noopener'}, q) : null;
+  paar('Wikidata', wd(z['Wikidata']), ERKL.wikidata); paar('Wikidata-Ort', wd(z['Wikidata-Ort']));
+  if (z['Ambiguous']) paar('Ort mehrdeutig', 'ja');
+  if (z['Nachgefasst']) paar('Nachgefasst', z['Nachgefasst']);
+  if (z['Widerspruch']) paar('Widerspruch', z['Widerspruch']);
+  if (d.kosten_chf != null) paar('Kosten', chf(d.kosten_chf) + ' CHF');
+  $('#ek_erg').hidden = false;
+  if (!ekKarte) {
+    ekKarte = L.map('ek_karte');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(ekKarte);
+  }
+  ekKarte.invalidateSize();
+  ekKarte.eachLayer(l => { if (!(l instanceof L.TileLayer)) ekKarte.removeLayer(l); });
+  if (lat != null) {
+    // Erst der Ausschnitt, dann die Ebenen: ein Kreis auf einer Karte ohne
+    // Ausschnitt wirft in Leaflet „layerPointToLatLng" (erster Test 2026-10-25).
+    const p = L.latLng(lat, lon), r = Number(z['Gitter'] || 0);
+    if (r > 0) ekKarte.fitBounds(p.toBounds(r * 2.4)); else ekKarte.setView(p, 16);
+    L.marker(p).addTo(ekKarte).bindPopup(z['Name'] || '');
+    if (r > 0) L.circle(p, {radius: r, weight: 1}).addTo(ekKarte);
+  } else ekKarte.setView([46.8, 8.2], 3);
+}
+"""
+
+# Logo von tools.cronica.ch/static (dieselbe Datei wie /layer und /timeslides).
+LOGO = '<img class="logo" src="/static/logo.png" alt="Locomot">'
+
 STIL = """
 :root{--pap:#f5f7f6;--kar:#fff;--lin:#dde3e0;--tex:#1f2623;--sec:#66726c;
       --akz:#1f6f5c;--gut:#2f7d4f;--warn:#9a5b00;--warn-hg:#fbf0dc;--krit:#a3302a;--krit-hg:#f9e4e2}
@@ -398,6 +587,7 @@ a{color:var(--akz)}
 .hut{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;padding:14px 22px;
      border-bottom:1px solid var(--lin);background:var(--kar)}
 .hut h1{margin:0;font-size:17px;font-weight:650}
+.logo{height:26px;width:auto;align-self:center;display:block}
 .hut .weg{margin-left:auto;display:flex;gap:14px;align-items:baseline}
 main{max-width:1180px;margin:0 auto;padding:22px}
 .karte{background:var(--kar);border:1px solid var(--lin);border-radius:8px;padding:18px 20px;margin-bottom:20px}
@@ -445,7 +635,8 @@ SEITE_LOGIN = """<!doctype html><meta charset="utf-8"><meta name="viewport" cont
 body{display:grid;place-items:center;min-height:100vh}
 form{background:var(--kar);border:1px solid var(--lin);border-radius:8px;padding:26px;width:320px}</style>
 <form method="post">
-  <h2 style="margin-top:0">Locationer</h2>
+  """ + LOGO + """
+  <h2 style="margin-top:18px">Locationer</h2>
   <label for="p">Passwort</label>
   <input type="password" id="p" name="passwort" autofocus
          style="width:100%;padding:7px 9px;border:1px solid var(--lin);border-radius:5px;font:inherit">
@@ -469,6 +660,7 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
 .erkl{margin-top:4px;max-width:46ch}
 </style>
 <div class="hut">
+  """ + LOGO + """
   <h1>Locationer</h1>
   <span class="hinweis">{{ version }} · Orte für Bilder finden · Koordinaten nur aus Datenbanken</span>
   <span class="weg"><span class="hinweis" id="heute"></span>
@@ -521,10 +713,8 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
     </table></div>
   </div>
 </main>
-<script>
-const $ = s => document.querySelector(s);
+<script>""" + GRUND_JS + EK_JS + """
 let gewaehlt = null, liste = [];
-const chf = x => x == null ? '–' : Number(x).toFixed(2);
 const zahl = x => x == null ? '–' : String(x).replace(/\\B(?=(\\d{3})+(?!\\d))/g, "'");
 const zeit = x => x ? String(x).replace('T', ' ').slice(0, 16) : '–';
 function dauer(von, bis) {
@@ -532,23 +722,6 @@ function dauer(von, bis) {
   const s = Math.max(0, ((bis ? new Date(bis) : new Date()) - new Date(von)) / 1000);
   const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
   return (h ? h + ' h ' : '') + m + ' min' + (bis ? '' : ' (läuft noch)');
-}
-
-function el(tag, attrs = {}, ...kinder) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else e.setAttribute(k, v);
-  }
-  for (const k of kinder) if (k != null) e.append(k.nodeType ? k : String(k));
-  return e;
-}
-
-async function api(pfad, opt = {}) {
-  const r = await fetch(pfad, opt);
-  let d = null; try { d = await r.json(); } catch (e) {}
-  if (!r.ok) throw new Error((d && d.fehler) || ('HTTP ' + r.status));
-  return d;
 }
 
 function zeichneListe() {
@@ -666,13 +839,6 @@ $('#tg_knopf').addEventListener('click', () => {
 });
 
 // ── Einzelabfrage: eine Zeile über /api/orte, also dieselbe Pipeline wie im Auftrag
-const ERKL = {
-  gitter: 'Unschärfe in Metern: in diesem Radius darf Pictomap das Bild um den Punkt streuen. 0 = genauer Punkt (Gebäude, Gipfel), 100 = Objekt gefunden, aber eine Fläche, mehr = nur der Ort ist bekannt (Radius nach Ortsgrösse). Leer = keine Koordinate.',
-  score: '5 = Objekt in GeoNames, TGN oder Ortsnamen-Datenbank gefunden · 4 = Objekt über Wikidata oder OpenStreetMap gefunden · 3 = nur der Ort, Mittelpunkt aus GeoNames · 2 = nur der Ort, über OpenStreetMap · 0 = keine Koordinate.',
-  bildtyp: 'Aus Titel und Beschreibung, nicht aus dem Bild: portrait = Person(en) als Motiv · group = gestelltes Gruppenbild · event = Fest, Umzug, Markt, Szene · view = Gebäude, Strasse, Platz, Ortsansicht, Innenraum · landscape = Natur, Berge, See, Küste · other = Fahrzeuge, Dokumente, Reproduktionen.',
-  wikidata: 'Feste Wikidata-Kennung des gefundenen Objekts (Wikidata) und des Orts (Wikidata-Ort). Gleiche Kennung = gleiches Motiv bzw. gleicher Ort, in jeder Sprache. Leer, wenn nur der Ort gefunden wurde oder die Quelle keine Kennung kennt.',
-};
-let ekKarte = null;
 $('#ek').addEventListener('submit', async ev => {
   ev.preventDefault();
   $('#ek_los').disabled = true; $('#ek_info').textContent = 'sucht … (einige Sekunden)';
@@ -680,48 +846,7 @@ $('#ek').addEventListener('submit', async ev => {
     const d = await api('api/orte', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({zeilen: [{title: $('#ek_titel').value, description: $('#ek_beschr').value}],
                             bbox: $('#bbox').value, logik: true})});
-    $('#ek_logik').textContent = d.logik || '(kein Protokoll)';
-    $('#ek_logik_reihe').hidden = false;
-    const z = d.zeilen[0], lat = z['Breitengrad'], lon = z['Längengrad'];
-    const dl = $('#ek_dl'); dl.replaceChildren();
-    const paar = (k, v, info) => {
-      const dd = el('dd', {}, v == null || v === '' ? '–' : v);
-      const dt = el('dt', {}, k);
-      if (info) {
-        // ⓘ klappt die Erklärung auf — ein title-Tooltip ginge auf dem Telefon nicht.
-        const txt = el('div', {class: 'hinweis erkl', hidden: ''}, info);
-        dt.append(' ', el('button', {type: 'button', class: 'info', 'aria-label': k + ' erklären',
-          onclick: () => { txt.hidden = !txt.hidden; }}, 'i'));
-        dd.append(txt);
-      }
-      dl.append(dt, dd);
-    };
-    paar('Titel', z['Name']); paar('Land', z['Land']); paar('Region', z['Region']); paar('Ort', z['Stadt/Ort']);
-    paar('Koordinaten', lat == null ? 'keine' : Number(lat).toFixed(5) + ', ' + Number(lon).toFixed(5));
-    paar('Gitter', z['Gitter'] == null ? null : z['Gitter'] + ' m', ERKL.gitter);
-    paar('Score', z['Coord-Quality-Score'], ERKL.score); paar('Bildtyp', z['Bildtyp'], ERKL.bildtyp);
-    const wd = q => q ? el('a', {href: 'https://www.wikidata.org/wiki/' + q, target: '_blank', rel: 'noopener'}, q) : null;
-    paar('Wikidata', wd(z['Wikidata']), ERKL.wikidata); paar('Wikidata-Ort', wd(z['Wikidata-Ort']));
-    if (z['Ambiguous']) paar('Ort mehrdeutig', 'ja');
-    if (z['Nachgefasst']) paar('Nachgefasst', z['Nachgefasst']);
-    if (z['Widerspruch']) paar('Widerspruch', z['Widerspruch']);
-    paar('Kosten', chf(d.kosten_chf) + ' CHF');
-    $('#ek_erg').hidden = false;
-    if (!ekKarte) {
-      ekKarte = L.map('ek_karte');
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(ekKarte);
-    }
-    ekKarte.invalidateSize();
-    ekKarte.eachLayer(l => { if (!(l instanceof L.TileLayer)) ekKarte.removeLayer(l); });
-    if (lat != null) {
-      // Erst der Ausschnitt, dann die Ebenen: ein Kreis auf einer Karte ohne
-      // Ausschnitt wirft in Leaflet „layerPointToLatLng" (erster Test 2026-10-25).
-      const p = L.latLng(lat, lon), r = Number(z['Gitter'] || 0);
-      if (r > 0) ekKarte.fitBounds(p.toBounds(r * 2.4)); else ekKarte.setView(p, 16);
-      L.marker(p).addTo(ekKarte).bindPopup(z['Name'] || '');
-      if (r > 0) L.circle(p, {radius: r, weight: 1}).addTo(ekKarte);
-    } else ekKarte.setView([46.8, 8.2], 3);
+    zeigeOrt(d);
     $('#ek_info').textContent = '';
   } catch (e) { $('#ek_info').textContent = e.message; }
   $('#ek_los').disabled = false;
@@ -733,6 +858,69 @@ $('#ek_logik_knopf').addEventListener('click', ev => {
 });
 
 laden(); setInterval(laden, 4000);
+</script>"""
+
+
+SEITE_LOC_LOGIN = SEITE_LOGIN.replace("<h2 style=\"margin-top:18px\">Locationer</h2>",
+                                      "<h2 style=\"margin-top:18px\">Ort finden</h2>")
+
+SEITE_LOC = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Ort finden · Locationer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>""" + STIL + """
+textarea{width:100%;padding:7px 9px;border:1px solid var(--lin);border-radius:5px;background:var(--pap);
+         color:var(--tex);font:inherit;min-height:44px;resize:vertical}
+main{max-width:1400px}
+.feld{display:grid;gap:12px;grid-template-columns:1fr 1fr auto;align-items:end}
+@media(max-width:820px){.feld{grid-template-columns:1fr}}
+.erg{display:grid;gap:18px;grid-template-columns:minmax(260px,360px) 1fr;margin-top:16px}
+@media(max-width:820px){.erg{grid-template-columns:1fr}}
+#ek_karte{height:max(420px,calc(100vh - 250px));border-radius:6px;border:1px solid var(--lin)}
+button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,serif;color:var(--akz);border-color:var(--akz);background:var(--kar);vertical-align:1px}
+.erkl{margin-top:4px;max-width:40ch}
+</style>
+<div class="hut">
+  """ + LOGO + """
+  <h1>Ort finden</h1>
+  <span class="hinweis">Bildtitel eingeben, Ort auf der Karte sehen · Koordinaten nur aus Datenbanken</span>
+  <span class="weg"><span class="hinweis">{{ version }}</span>
+    <form method="post" action="logout"><button>Abmelden</button></form></span>
+</div>
+<main>
+  <div class="karte">
+    <form id="ek" class="feld">
+      <div><label for="ek_titel">Titel</label><input type="text" id="ek_titel" required autofocus
+           placeholder="z.B. Chur, St. Martinskirche"></div>
+      <div><label for="ek_beschr">Beschreibung (optional)</label><textarea id="ek_beschr" rows="1"></textarea></div>
+      <div><button class="haupt" type="submit" id="ek_los">Ort suchen</button></div>
+    </form>
+    <p class="hinweis" id="ek_info" style="margin:8px 0 0"></p>
+    <div class="erg" id="ek_erg" hidden><dl id="ek_dl"></dl><div id="ek_karte"></div></div>
+    {% if logik %}
+    <div class="reihe" id="ek_logik_reihe" hidden>
+      <button type="button" id="ek_logik_knopf" aria-expanded="false">Logik</button>
+      <span class="hinweis">Was Haiku verstanden hat und was jede Datenbank geantwortet hat.</span></div>
+    <pre id="ek_logik" hidden style="margin-top:10px;max-height:480px"></pre>
+    {% endif %}
+  </div>
+</main>
+<script>""" + GRUND_JS + EK_JS + """
+$('#ek').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  $('#ek_los').disabled = true; $('#ek_info').textContent = 'sucht … (einige Sekunden)';
+  try {
+    const d = await api('api/ort', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title: $('#ek_titel').value, description: $('#ek_beschr').value})});
+    zeigeOrt(d);
+    $('#ek_info').textContent = '';
+  } catch (e) { $('#ek_info').textContent = e.message; }
+  $('#ek_los').disabled = false;
+});
+if ($('#ek_logik_knopf')) $('#ek_logik_knopf').addEventListener('click', ev => {
+  const pre = $('#ek_logik'); pre.hidden = !pre.hidden;
+  ev.currentTarget.setAttribute('aria-expanded', String(!pre.hidden));
+});
 </script>"""
 
 
