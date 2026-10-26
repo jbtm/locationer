@@ -141,7 +141,8 @@ Vor dem ersten Lauf mit einer neuen Sammlung diese Punkte abarbeiten:
 # Format: min_lat,max_lat,min_lon,max_lon
 # Regel: grosszügig genug für alle legitimen Treffer, eng genug um falsche Weltregionen auszuschliessen
 
-COLLECTION_BBOX=43.0,62.0,-5.0,20.0    # Schweiz + Europa
+COLLECTION_BBOX=25,72,-15,45           # Europa mit Mittelmeer, Nordafrika, Nahost (Server seit 2026-10-26)
+# COLLECTION_BBOX=43.0,62.0,-5.0,20.0  # Schweiz + Mitteleuropa (bis 2026-10-26)
 # COLLECTION_BBOX=18.0,38.0,-5.0,40.0  # Nordafrika
 # COLLECTION_BBOX=25.0,50.0,60.0,90.0  # Zentralasien
 # COLLECTION_BBOX=                       # Global (kein Filter)
@@ -1581,6 +1582,13 @@ Gattungswort-Objekte; 17 Zufallstreffer → Ortsmitte (Kirchen St. Moritz,
 Wädenswil, Mainz, Jerusalem; Cathédrale Alger vorher 8.6 km daneben; Hafen
 Bordeaux, Museum Neapel, Teatro Siracusa …), 4 genauer (Hafen Rorschach,
 Bahnhof Messina, Château Vichy), ein Verlust (Grande Mosquée Srinagar → Ortsmitte).
+
+### Nachtrag 2026-10-26: Suchraum-Vorgabe auf dem Server
+
+`COLLECTION_BBOX=25,72,-15,45` (vorher 43,62,-5,20): Kanaren bis Nordkap, Atlantik
+bis Kaspisches Meer. Wirkt nur auf neue Aufträge und Einzelabfragen bei Zeilen
+ohne erkanntes Land; bestehende Aufträge behalten ihren gespeicherten Suchraum
+(DISCO-Auftrag 4: ohne). Nur `.env`, kein neuer Code, darum keine neue Version.
 
 ### Nachtrag 2026-10-26 (v6.2.1): tools.cronica.ch/loc
 
