@@ -1667,6 +1667,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.2.5 | 2026-10-26 | GUI: getippte Grenze springt nicht mehr zurück; Meldung nach dem Hochladen zeigt das Prüfergebnis; „Zeilen“ mit neuen/verschiedenen, „Schätzung vorher“ nur der Betrag; Einzelabfrage aufklappbar |
 | 6.2.4 | 2026-10-26 | Feld „Name“ heisst „Auftragsname“; Download nach dem Dateinamen: `<Datei>_loc-<Datum>.csv` |
 | 6.2.3 | 2026-10-26 | Download heisst wie bei der Kommandozeile `<Name>_loc-<Datum>.csv` (Datum des Abschlusses; Teilergebnis `<Name>_teil_loc-<heute>.csv`) |
 | 6.2.2 | 2026-10-26 | „Schwerpunkt (Bbox)“ heisst jetzt „Suchraum (Bbox)“ (er ist ein Zaun für Zeilen ohne Land, kein Schwerpunkt), mit ⓘ-Erklärung; Knopf „Auf Karte“ zeigt den Suchraum als Rechteck, zwei Klicks setzen einen neuen |

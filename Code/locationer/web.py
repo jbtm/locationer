@@ -664,6 +664,12 @@ textarea{width:100%;padding:7px 9px;border:1px solid var(--lin);border-radius:5p
 #sr_karte{height:380px;border-radius:6px;border:1px solid var(--lin)}
 #sr_karte.zeichnen{cursor:crosshair}
 button.klein{padding:0 8px;font-size:12px;margin-left:6px}
+details.karte>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:12px}
+details.karte>summary::-webkit-details-marker{display:none}
+details.karte>summary h2{margin:0}
+details.karte>summary h2::before{content:'▸ ';display:inline-block;width:1.1em}
+details.karte[open]>summary h2::before{content:'▾ '}
+details.karte[open]>summary{margin-bottom:14px}
 .kopf{display:flex;align-items:baseline;gap:12px} .kopf h2{margin-bottom:14px} .kopf button{margin-left:auto}
 button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,serif;color:var(--akz);border-color:var(--akz);background:var(--kar);vertical-align:1px}
 .erkl{margin-top:4px;max-width:46ch}
@@ -706,8 +712,8 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
     </form>
   </div>
 
-  <div class="karte">
-    <h2>Einzelabfrage</h2>
+  <details class="karte" id="ek_box">
+    <summary><h2>Einzelabfrage</h2> <span class="hinweis">eine Zeile sofort prüfen</span></summary>
     <form id="ek">
       <div class="raster" style="grid-template-columns:1fr 1fr">
         <div><label for="ek_titel">Titel</label><input type="text" id="ek_titel" required
@@ -722,7 +728,7 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
       <button type="button" id="ek_logik_knopf" aria-expanded="false">Logik</button>
       <span class="hinweis">Was Haiku verstanden hat und was jede Datenbank geantwortet hat.</span></div>
     <pre id="ek_logik" hidden style="margin-top:10px;max-height:480px"></pre>
-  </div>
+  </details>
 
   <div class="karte" id="detail" hidden></div>
 
@@ -736,7 +742,8 @@ button.info{padding:0 6px;border-radius:50%;font:600 11px/16px ui-serif,Georgia,
   </div>
 </main>
 <script>""" + GRUND_JS + EK_JS + """
-let gewaehlt = null, liste = [];
+let gewaehlt = null, liste = [], neuId = null;
+const entwurf = {};      // Auftrag → getippte Grenze, bis sie gespeichert ist
 const zahl = x => x == null ? '–' : String(x).replace(/\\B(?=(\\d{3})+(?!\\d))/g, "'");
 const zeit = x => x ? String(x).replace('T', ' ').slice(0, 16) : '–';
 function dauer(von, bis) {
@@ -773,6 +780,7 @@ async function waehle(id) { gewaehlt = (gewaehlt === id ? null : id); zeichneLis
 async function aktion(pfad, body) {
   try {
     await api(pfad, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+    delete entwurf[gewaehlt];
     await laden();
   } catch (e) { $('#det_info').textContent = e.message; }
 }
@@ -793,8 +801,9 @@ async function zeichneDetail() {
     el('dt', {}, 'Beendet'), el('dd', {}, zeit(a.beendet)),
     el('dt', {}, 'Rechenzeit'), el('dd', {}, a.gestartet ? dauer(a.gestartet, a.beendet) : '–'),
     el('dt', {}, 'Zustand'), el('dd', {}, a.zustand),
-    el('dt', {}, 'Zeilen'), el('dd', {}, zahl(a.erledigt) + ' von ' + zahl(a.zeilen)),
-    el('dt', {}, 'Schätzung vorher'), el('dd', {}, s ? (zahl(s.neu) + ' neue von ' + zahl(s.verschieden) + ' verschiedenen Zeilen → höchstens ' + chf(s.chf) + ' CHF') : '–'),
+    el('dt', {}, 'Zeilen'), el('dd', {}, zahl(a.erledigt) + ' von ' + zahl(a.zeilen) +
+      (s ? ' · ' + zahl(s.neu) + ' neue von ' + zahl(s.verschieden) + ' verschiedenen' : '')),
+    el('dt', {}, 'Schätzung vorher'), el('dd', {}, s ? 'höchstens ' + chf(s.chf) + ' CHF' : '–'),
     el('dt', {}, 'Kosten bisher'), el('dd', {}, chf(a.chf) + ' CHF'),
     el('dt', {}, 'Hochrechnung'), el('dd', {}, a.hochrechnung_chf == null ? 'ab 1000 Zeilen' : chf(a.hochrechnung_chf) + ' CHF'),
     el('dt', {}, 'Grenze'), el('dd', {}, chf(a.grenze_chf) + ' CHF'),
@@ -802,7 +811,9 @@ async function zeichneDetail() {
     el('dt', {}, 'Version'), el('dd', {}, a.version || '–'));
   box.append(dl);
   const r = el('div', {class: 'reihe'});
-  const gr = el('input', {type: 'text', id: 'neue_grenze', value: a.grenze_chf, style: 'width:110px'});
+  // Was getippt wurde, überlebt das Neuzeichnen alle 4 s (vorher sprang es auf die alte Grenze zurück).
+  const gr = el('input', {type: 'text', id: 'neue_grenze', value: entwurf[a.id] ?? a.grenze_chf, style: 'width:110px',
+                          oninput: ev => { entwurf[a.id] = ev.target.value; }});
   if (a.zustand === 'bereit') {
     r.append(el('label', {for: 'neue_grenze', style: 'margin:0'}, 'Grenze CHF'), gr,
       el('button', {class: 'haupt', onclick: () => aktion('api/auftraege/' + a.id + '/starten', {grenze_chf: gr.value})}, 'Starten'));
@@ -830,6 +841,13 @@ async function laden() {
     const st = await api('api/status');
     $('#heute').textContent = 'heute ' + chf(st.heute_chf) + ' von ' + chf(st.tagesgrenze_chf) + ' CHF';
     zeichneListe();
+    const neu = neuId != null && liste.find(x => x.id === neuId);
+    if (neu && neu.zustand !== 'prüfen') {
+      $('#neu_info').textContent = 'Auftrag ' + neu.id + ' geprüft: ' + neu.zustand +
+        (neu.schaetzung ? ', höchstens ' + chf(neu.schaetzung.chf) + ' CHF' : '') +
+        (neu.zustand === 'bereit' ? ' — unten Grenze prüfen und starten.' : (neu.grund ? ' — ' + neu.grund : ''));
+      neuId = null;
+    }
     if (gewaehlt != null && !document.activeElement?.matches('#neue_grenze')) await zeichneDetail();
   } catch (e) { $('#heute').textContent = 'keine Verbindung: ' + e.message; }
 }
@@ -840,7 +858,7 @@ $('#neu').addEventListener('submit', async ev => {
   $('#hoch').disabled = true; $('#neu_info').textContent = 'lädt hoch …';
   try {
     const a = await api('api/auftraege', {method: 'POST', body: fd});
-    $('#neu_info').textContent = 'Auftrag ' + a.id + ' angelegt — wird geprüft.';
+    $('#neu_info').textContent = 'Auftrag ' + a.id + ' angelegt — wird geprüft …'; neuId = a.id;
     $('#neu').reset(); $('#grenze').value = '{{ '%g' % grenze }}'; $('#bbox').value = '{{ bbox }}'; if (srKarte) srZeigen();
     gewaehlt = a.id; await laden();
   } catch (e) { $('#neu_info').textContent = e.message; }
@@ -899,6 +917,13 @@ function srZeigen() {
   if (b) { srRechteck = L.rectangle(b, {weight: 2, color: '#1f6f5c', fillOpacity: .08}).addTo(srKarte); srKarte.fitBounds(b.pad(.15)); }
   else srKarte.setView([48, 8], 4);
 }
+// Einzelabfrage auf- oder zugeklappt: pro Browser gemerkt.
+try { if (localStorage.getItem('ek_offen') === '1') $('#ek_box').open = true; } catch (e) {}
+$('#ek_box').addEventListener('toggle', () => {
+  try { localStorage.setItem('ek_offen', $('#ek_box').open ? '1' : '0'); } catch (e) {}
+  if ($('#ek_box').open && ekKarte) ekKarte.invalidateSize();
+});
+
 $('#sr_info').addEventListener('click', () => { $('#sr_erkl').hidden = !$('#sr_erkl').hidden; });
 $('#sr_knopf').addEventListener('click', ev => {
   const p = $('#sr_panel'); p.hidden = !p.hidden;
