@@ -160,6 +160,9 @@ _GELAENDE_TGN = {
     "wadi", "mountain range", "pond", "beach", "glacier", "waterfall",
     "gorge", "plateau", "plain", "peninsula", "lagoon", "fjord", "strait",
 }
+# Strecken: ziehen durch mehrere Gemeinden (Tunnel, Passstrasse, Bahnlinie).
+# GeoNames-Klasse R, TGN-Typen.  Nur fuer die Gemeinde-Pruefung.
+_STRECKE_TGN = {"tunnel", "road", "route", "railroad"}
 
 
 def _gelaende(location: str, art: str = "") -> bool:
@@ -396,6 +399,15 @@ class GeoStack:
     # Radius: es liegt oft ausserhalb der Gemeinde.  Was ein Gebaeude ist,
     # sagt Haiku (`location_kind`) und, wo sie es weiss, die Quelle.
     #
+    # Strassen seit v6.3.0 ebenso: „Rennweg, Zürich" landete 20 km weit in
+    # einem Nachbarort, „Hirschengraben" 29 km, „Weinbergstrasse, Kilchberg"
+    # 7 km — im ZIN-Lauf vom 2026-10-26 lagen 8 von 169 Strassentreffern
+    # ausserhalb der Gemeinde, 6 davon falsch.  Frei bleibt eine Strasse, wenn
+    # der Ort kein Dorf ist (Pass, Berg: dann fehlt `city_row`) oder die Quelle
+    # sie als Strecke kennt (Simplontunnel, TGN „tunnel").  Preis: eine Strasse
+    # ueber die Gemeindegrenze (Nidelbadstrasse Rüschlikon/Kilchberg) faellt
+    # aufs Ortszentrum zurueck.
+    #
     # Massstab: die Gemeinde eines der 5 naechsten GeoNames-Orte des
     # Treffers — mehrere, weil ein Gebaeude am Gemeinderand naeher beim
     # Nachbarort liegen kann.  Die Gemeinde steht je Land auf einer anderen
@@ -406,17 +418,20 @@ class GeoStack:
                              city_radius, art: str = "") -> str:
         """Grund, warum ein Treffer nicht im Ort liegt — '' wenn er passt.
 
-        Gebunden ist nur ein Gebaeude (`location_kind`).  Kennt die Quelle
-        die Art des Treffers und ist es Gelaende (GeoNames-Klasse, TGN-Typ),
-        gilt das vor Haikus Einschaetzung.  Strassen bleiben frei: eine
-        Passstrasse liegt in vielen Gemeinden.
+        Gebunden sind Gebaeude und Strassen (`location_kind`).  Kennt die
+        Quelle die Art des Treffers und ist es Gelaende oder eine Strecke
+        (GeoNames-Klasse, TGN-Typ), gilt das vor Haikus Einschaetzung.  Eine
+        Strasse ist nur an ein Dorf gebunden, nicht an einen Pass oder Berg.
         """
         if not near or not record.location or not self.geo_db:
             return ""
-        if art and (art in _GELAENDE_KLASSEN or art.lower() in _GELAENDE_TGN):
+        if art and (art in _GELAENDE_KLASSEN or art.lower() in _GELAENDE_TGN
+                    or art == "R" or art.lower() in _STRECKE_TGN):
             return ""
         if record.location_kind in _ARTEN:
-            if record.location_kind != "building":
+            if record.location_kind == "nature":
+                return ""
+            if record.location_kind == "street" and city_row is None:
                 return ""
         elif _gelaende(record.location):
             return ""
@@ -452,6 +467,16 @@ class GeoStack:
                 f"VERWORFEN: {result.source} {result.match_name!r} liegt ausserhalb "
                 f"Land {region[0]} / Region {region[1] or '—'} — keine Koordinate"])
         return result
+
+    def _ort_ist_gelaende(self, record: NormalizedRecord, country_code):
+        """Das bekannte Gelaende, das der Ort selbst ist (ohne Land) — oder None."""
+        if (country_code is not None or not self.geo_db or not record.city
+                or record.location_kind != "nature"):
+            return None
+        gel = self.geo_db.bedeutendes_gelaende(record.city)
+        if gel and _within_collection_bbox(gel["lat"], gel["lon"], self.collection_bbox):
+            return gel
+        return None
 
     def _naturobjekt_beim_ort(self, record: NormalizedRecord, region,
                               result: GeoResult) -> GeoResult:
@@ -494,6 +519,8 @@ class GeoStack:
                 or not self.geo_db):
             return result
         cc, a1 = region[0], region[1]
+        if self._ort_ist_gelaende(record, cc):
+            return result       # der Ort ist selbst das Gelaende, kein Dorf
         natur = _natur(record)
         if not natur:
             row = self.geo_db.find_precise(record.location, cc, admin1_hint=a1)
@@ -818,14 +845,30 @@ class GeoStack:
             mn_lat, mx_lat, mn_lon, mx_lon = self.collection_bbox
             collection_center = ((mn_lat + mx_lat) / 2, (mn_lon + mx_lon) / 2)
 
-        city_row, city_ambiguous = self.geo_db.find_city(record.city, country_code, admin1_hint) if (self.geo_db and record.city) else (None, False)
+        # Ohne Land ist ein Gelaende als Ort zuerst Gelaende (v6.3.0): „Bodensee"
+        # ohne Land landete im Dorf Bodensee in Niedersachsen, „Massif du
+        # Mont-Blanc" in Saint-Just-Malmont.  Gilt nur, wenn Haiku das Objekt
+        # als Natur einstuft und ein Gelaende dieses Namens klar bekannter ist
+        # als alle gleichnamigen (geo_db.bedeutendes_gelaende).  Mit Land
+        # bleibt alles beim Alten — dort entscheidet der Laenderrahmen.
+        geo_feat_city = self._ort_ist_gelaende(record, country_code)
+        if geo_feat_city:
+            dbg.append(f"city is terrain: {geo_feat_city['name']} [{geo_feat_city['feature_code']}]")
+
+        if geo_feat_city:
+            city_row, city_ambiguous = None, False
+        elif self.geo_db and record.city:
+            city_row, city_ambiguous = self.geo_db.find_city(record.city, country_code, admin1_hint)
+        else:
+            city_row, city_ambiguous = None, False
         near = (city_row["lat"], city_row["lon"]) if city_row else None
+        if geo_feat_city:
+            near = (geo_feat_city["lat"], geo_feat_city["lon"])
         city_radius = _city_radius_km(city_row)  # dynamic threshold based on city size
         geo_feature = bool(record.location) and _natur(record)  # gorges/passes/peaks need bigger radius
 
         # If city not found as populated place, try as geographic feature (mountain,
         # lake, pass, etc.) — gives proximity anchor for cases like "Pilatus", "Rigi"
-        geo_feat_city = None
         if not near and self.geo_db and record.city:
             # Use collection_center as proximity hint so globally ambiguous names
             # (e.g. "Matterhorn") resolve to the instance nearest the collection area.

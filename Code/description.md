@@ -1656,6 +1656,37 @@ Giessbach (Wasserfall heisst wie der Fluss → Fluss-Regel), Portaceli
 (Gemeinde-Prüfung), Obersee Näfels (Naturobjekt 3.4 km > 3 km). Beobachten,
 nicht einzeln korrigieren.
 
+### Nachtrag 2026-10-26 (v6.3.0): Strassen in der Gemeinde, Ort als Gelände
+
+ZIN-Lauf mit v6.2.5 (Auftrag 5, 21684 Zeilen, 8.03 CHF) gegen v4: Abdeckung
+95.0 → 96.0 %, Score 4+5 9036 → 10469. Zwei Fehlermuster:
+
+**Strassen ausserhalb der Gemeinde.** Von 169 Strassentreffern mit Score 4–5
+im Cache lagen 8 nicht in der Gemeinde des Orts, 6 davon falsch (Rennweg und
+Hirschengraben Zürich 20/29 km, Weinbergstrasse Kilchberg, Vittorio Emanuele
+Genova, Calandaweg Chur, Sonnenbergstrasse Rüti). Seit v6.3.0 gilt die
+Gemeinde-Prüfung auch für Strassen (`location_kind = street`). Frei bleiben sie,
+wenn der Ort kein Dorf ist (Pass, Berg: kein `city_row`) oder die Quelle den
+Treffer als Strecke führt (GeoNames-Klasse R, TGN `tunnel`, `road`, `route`,
+`railroad` — Simplontunnel bei Brig). Preis: eine Strasse über die
+Gemeindegrenze fällt aufs Ortszentrum (Nidelbadstrasse Rüschlikon).
+
+**Kein Land, der Ort ist Gelände.** „Bodensee" ohne Land landete im Dorf
+Bodensee (Niedersachsen), „Massif du Mont-Blanc" in Saint-Just-Malmont. Ist
+das Land leer und stuft Haiku das Objekt als Natur ein, sucht
+`geo_db.bedeutendes_gelaende` zuerst ein Gelände (GeoNames T/H) dieses Namens.
+Bedeutung = Zahl der Namen in anderen Sprachen (sprachunabhängig): gemeint ist
+der Kandidat mit mindestens 10 und doppelt so vielen wie der nächste, weltweit
+verglichen, innerhalb des Suchraums. Bodensee 76 gegen 0, Mont Blanc 122 gegen
+3, Genfersee 47 gegen 18. Schwelle vor dem Test festgelegt. Die
+Naturobjekt-Regel lässt einen solchen Ort stehen. Gleichnamige Dörfer ohne
+Land (Schwendi, Schöneck) bleiben ungelöst — ohne Anker keine saubere Regel.
+
+Test (geo_cache leer, Normalisierung vom Server): 528 Zeilen (Stichprobe 400
++ betroffene) → 12 geändert; gezielt 426 Zeilen (334 Strassenzeilen, 92 ohne
+Land) → 16 geändert, alle besser oder gleichwertig (Lago Maggiore: Seemitte
+statt Nordende). Keine Verschlechterung.
+
 ## Versionen
 
 Regel: MAJOR = Ergebnisse ändern sich grundlegend (Modell, Pipeline-Schritt),
@@ -1667,6 +1698,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.3.0 | 2026-10-26 | Strassen müssen in der Gemeinde des Orts liegen (ausser Pass/Berg als Ort, Tunnel/Strecken); ohne Land wird ein bekanntes Gelände (Bodensee, Mont Blanc) zum Ortsanker statt eines gleichnamigen Dorfs |
 | 6.2.6 | 2026-10-26 | GUI: Spalte „Fertig ca.“ neben der Hochrechnung; Zeiten in Ortszeit des Betrachters (Register und Protokoll sind Server-UTC), Rechenzeit stimmt; Protokoll bleibt unten |
 | 6.2.5 | 2026-10-26 | GUI: getippte Grenze springt nicht mehr zurück; Meldung nach dem Hochladen zeigt das Prüfergebnis; „Zeilen“ mit neuen/verschiedenen, „Schätzung vorher“ nur der Betrag; Einzelabfrage aufklappbar |
 | 6.2.4 | 2026-10-26 | Feld „Name“ heisst „Auftragsname“; Download nach dem Dateinamen: `<Datei>_loc-<Datum>.csv` |

@@ -123,6 +123,10 @@ ohne. **Vor jedem Deployment Version erhoehen, Zeile in description.md
 - Objekt der Form „<Wort> <Ort>" (z.B. „Kirche Almens"): Nominatim bis 10 Treffer; mehrere gleicher Art in der Gemeinde → Ortsmitte
 - Ausnahme: ein Treffer weit bedeutender (Nominatim importance ≥ 0.3 und ≥ 2× der nächste); Schalter `GATTUNG=0`, `BEDEUTEND=0`
 
+### Gemeinde-Prüfung für Strassen, Ort als Gelände (seit v6.3.0)
+- `_ausserhalb_gemeinde` bindet Gebäude und Strassen; Strassen frei bei Ort ohne `city_row` (Pass/Berg) oder Strecke laut Quelle (GeoNames R, TGN tunnel/road/route/railroad)
+- Ohne Land + `location_kind = nature`: `geo_db.bedeutendes_gelaende(city)` (T/H, ≥ 10 Alternativnamen und ≥ 2× der nächste) wird Ortsanker (`GeoStack._ort_ist_gelaende`)
+
 ### Wikidata-Kennungen (seit v6.2.0)
 - Ausgabe `Wikidata` (Objekt, nur Score 4–5) und `Wikidata-Ort` (`GeoStack.qid_ort`, Ortspunkt und Gemeinde, der bekanntere)
 - Quelle des Treffers: Wikidata-QID, OSM `extratags` (`nominatim.wikidata_nachholen` für alte Cache-Einträge), GeoNames `wkdt` bzw. `Wikidata.qid_fuer("P1566", …)`, TGN `P1667`

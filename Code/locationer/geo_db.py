@@ -516,6 +516,39 @@ class GeoDatabase:
         self._lage_cache[key] = menge
         return menge
 
+    def bedeutendes_gelaende(self, name: str, min_alt: int = 10,
+                             faktor: float = 2.0) -> Optional[sqlite3.Row]:
+        """Das eine bekannte Gelaende dieses Namens (Berg, See, Gletscher) — oder None.
+
+        Fuer Zeilen ohne Land (geostack, „Ort ist Gelaende"): „Bodensee" ist
+        auch ein Dorf in Niedersachsen und vier kleine Seen in Oesterreich.
+        Bedeutung misst die Zahl der Namen in anderen Sprachen — Lake Constance
+        hat 76, die kleinen Seen keinen.  Sprachunabhaengig, ohne Netz.
+        Gemeint ist der Kandidat mit mindestens `min_alt` Namen und `faktor`-mal
+        so vielen wie der naechste; weltweit verglichen.  Vor dem Test
+        festgelegt (2026-10-26), wie _BEDEUTEND_FAKTOR in geostack.
+        """
+        ids: set[int] = set()
+        for norm in _ascii_norm_variants(name):
+            ids |= {r[0] for r in self.conn.execute(
+                "SELECT geoname_id FROM geofeature WHERE ascii_name_norm=? "
+                "AND feature_class IN ('T','H') LIMIT 50", (norm,))}
+            ids |= {r[0] for r in self.conn.execute(
+                "SELECT a.geoname_id FROM geo_alt_name a JOIN geofeature g "
+                "ON a.geoname_id = g.geoname_id WHERE a.alt_name_norm=? "
+                "AND g.feature_class IN ('T','H') LIMIT 50", (norm,))}
+        if not ids:
+            return None
+        zahl = sorted(((self.conn.execute(
+            "SELECT COUNT(*) FROM geo_alt_name WHERE geoname_id=?", (i,)).fetchone()[0], i)
+            for i in ids), reverse=True)
+        n1 = zahl[0][0]
+        n2 = zahl[1][0] if len(zahl) > 1 else 0
+        if n1 < min_alt or n1 < faktor * n2:
+            return None
+        return self.conn.execute("SELECT * FROM geofeature WHERE geoname_id=?",
+                                 (zahl[0][1],)).fetchone()
+
     def gemeinden_bei(self, lat: float, lon: float, n: int = 5,
                       max_km: float = 10.0) -> "set[tuple]":
         """{(Land, Kanton, Gemeinde), …} der n naechsten Orte.
