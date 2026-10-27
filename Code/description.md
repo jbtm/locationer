@@ -290,7 +290,7 @@ Optionale Spalten `lat_true` / `lon_true` (oder `Breitengrad` / `Längengrad`): 
 |---|---|
 | `Name` | `Title` — der von Haiku bereinigte Titel |
 | `Beschreibung` | `Description` |
-| `Periode` | `Periode` (PCTM-normalisiert) |
+| `Periode` | `Periode` (EDTF) |
 | `Urheber:in` | `Urheber` |
 | **`Land`, `Region`, `Stadt/Ort`, `Breitengrad`, `Längengrad`** | **das Geocoding-Ergebnis** |
 | `Exakte Koordinaten`, `Datei`, `Quelle`, `Referenz`, `Bemerkungen` | die Eingabe, unverändert |
@@ -335,21 +335,26 @@ von dem, was in der Nähe steht.
 
 `Ambiguous` — `True` wenn der City-Anker mehrdeutig war (mehrere geografisch weit auseinanderliegende Kandidaten). Die Koordinaten sind trotzdem vorhanden (bester Kandidat), aber die Zuordnung ist unsicher. Im human-Output erscheint `[?ambig]`.
 
-`Periode` — immer im PCTM-Format. Haiku extrahiert den Zeitraum aus Description + `EXTRA_DESC_COLS`, die Pipeline normalisiert ihn. Trennzeichen Jahr/Monat = `:`, Trennzeichen Start/Ende = `-`.
+`Periode` — seit v6.4.0 im EDTF-Format (ISO 8601-2), wie in Directus (Feld `periode`); Spezifikation: `Pictomap/DEVELOPMENT/Spezifikationen/Datum/Datumsformat_Pictomap_EDTF.md`. Haiku extrahiert den Zeitraum (Phase 1b), `pipeline.parse_periode_edtf` schreibt ihn um. Jahr/Monat mit `-`, Anfang/Ende mit `/`, nie genauer als die Angabe. Nur dieses eine Feld — `date_from`/`date_to` liefert der Locationer nicht.
 
-| Input (Haiku-Rohwert) | Periode (PCTM) | Regel |
+| Input (Haiku-Rohwert) | Periode (EDTF) | Regel |
 |---|---|---|
 | `1908` | `1908` | Einzeljahr |
-| `circa 1890` | `1890` | Qualifier wird gestripped |
-| `1914-1918` | `1914-1918` | Jahres-Range (4+4 Stellen) |
-| `1914-18` | `1914-1918` | Kurzjahr (2 Stellen, >12 → Jahres-Range) |
-| `1910-03` | `1910:03` | Monat (2 Stellen, ≤12 → Monat, nicht 1910-1903!) |
-| `1947-09` | `1947:09` | idem — 09 ≤ 12 → September, nicht 1947-1909 |
-| `1947-9` | `1947:09` | 1 Stelle → immer Monat |
-| `1910-03-1920-05` | `1910:03-1920:05` | Monats-Range |
-| nicht erwähnt | *(leer)* | kein Halluzinieren |
+| `circa 1890`, `ca. 1890`, `um 1890`, `c. 1890` | `1890~` | ungefähr |
+| `1923?` | `1923?` | unsicher; mit „ca.“ zusammen `1923%` |
+| `ca. 1910-1920` | `1910~/1920~` | Zeichen an jedem Ende |
+| `vor 1900`, `Mitte 1890` | `1900`, `1890` | übrige Wörter fallen weg (wie bisher) |
+| `1914-1918` | `1914/1918` | Jahres-Range (4+4 Stellen) |
+| `1914-18` | `1914/1918` | Kurzjahr (2 Stellen, >12 → Jahres-Range) |
+| `1910-03` | `1910-03` | Monat (2 Stellen, ≤12 → Monat, nicht 1910/1903!) |
+| `1947-9` | `1947-09` | 1 Stelle → immer Monat |
+| `1910-03-1920-05`, `1910:03-1920:05` | `1910-03/1920-05` | Monats-Range |
+| `1910-1920:05` | `1910/1920-05` | gemischt |
+| nicht erwähnt, Jahr < 1000 oder > 2100 | *(leer)* | kein Halluzinieren |
 
-**Kritische Unterscheidung:** `1947-09` → `1947:09` (September 1947), nicht `1947-1909`. Zweistellige Werte ≤ 12 werden immer als Monat interpretiert. Zweistellige Werte >12 als Kurzjahr (`1914-18` → `1914-1918`).
+**Kritische Unterscheidung:** `1947-09` = September 1947, nicht 1947/1909. Zweistellige Werte ≤ 12 sind immer ein Monat, > 12 ein Kurzjahr (`1914-18` → `1914/1918`).
+
+Bis v6.3.1 stand hier das PCTM-Format (`1910:03`, `1914-1918`, Qualifier gestrichen). Umschreiben alter Dateien: `-` → `/`, dann `:` → `-` (eindeutig; an allen 193 verschiedenen Rohwerten im Server-Cache geprüft, einzige Abweichung `circa 1906` → jetzt `1906~`). Der Haiku-Prompt verlangt weiterhin nur `yyyy` oder `yyyy-yyyy`; genauere Angaben (Tag, Jahrzehnt, „ca.“) sind ein späterer Schritt nach einer Stichprobe.
 
 `Deviation_km` erscheint nur wenn `lat_true`/`lon_true` im Input vorhanden sind.
 
@@ -447,7 +452,7 @@ Robustheit: Wenn Haiku den Input-Stadtnamen kürzer zurückgibt als der Original
 Separater Haiku-Call für historische Metadaten. Haiku sieht dabei **alle Spalten des Inputfiles** (nicht nur title/description) — Felder wie `PeriodeRAW`, `Urheber_Roh` etc. werden automatisch einbezogen, ohne dass `EXTRA_DESC_COLS` nötig ist.
 
 Extrahierte Felder:
-- `periode`: Zeitraum als Rohwert (z.B. `"circa 1890"`, `"1914-1918"`) → wird von der Pipeline in PCTM-Format normalisiert
+- `periode`: Zeitraum als Rohwert (z.B. `"circa 1890"`, `"1914-1918"`) → wird von der Pipeline ins EDTF-Format umgeschrieben
 - `urheber`: Fotograf / Künstler
 - `technik`: Fotografietechnik (z.B. `"Albumin"`, `"Photochrome"`, `"Cyanotype"`)
 
@@ -1698,6 +1703,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.4.0 | 2026-10-27 | `Periode` im EDTF-Format statt PCTM (`1914/1918`, `1910-03`, `1890~`); „ca./um/circa“ wird zu `~` statt gestrichen |
 | 6.3.1 | 2026-10-27 | Spalten `Wikidata` → `wikidata` und `Wikidata-Ort` → `wikidata_place`, wie die Felder in Directus; Werte unverändert |
 | 6.3.0 | 2026-10-26 | Strassen müssen in der Gemeinde des Orts liegen (ausser Pass/Berg als Ort, Tunnel/Strecken); ohne Land wird ein bekanntes Gelände (Bodensee, Mont Blanc) zum Ortsanker statt eines gleichnamigen Dorfs |
 | 6.2.6 | 2026-10-26 | GUI: Spalte „Fertig ca.“ neben der Hochrechnung; Zeiten in Ortszeit des Betrachters (Register und Protokoll sind Server-UTC), Rechenzeit stimmt; Protokoll bleibt unten |

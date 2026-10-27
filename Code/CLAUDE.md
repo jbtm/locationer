@@ -152,6 +152,7 @@ ohne. **Vor jedem Deployment Version erhoehen, Zeile in description.md
 
 ### Phase 1b — Metadaten-Extraktion (`locationer/input_normalizer.py`)
 - Claude Haiku, Batch à 20 → `periode`, `urheber`, `technik`
+- `Periode` wird EDTF (`pipeline.parse_periode_edtf`, seit v6.4.0; vorher PCTM `1910:03`, `1914-1918`)
 - Cache: `meta_cache`
 
 ### Phase 1c — TGN Resolver (`locationer/input_normalizer.py`, `locationer/tgn_db.py`)

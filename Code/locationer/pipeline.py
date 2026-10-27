@@ -40,6 +40,8 @@ _QUALIFIERS = re.compile(
     r'(?i)\b(circa|ca\.?|um|vor|nach|around|about|early|late|'
     r'frühes?|spätes?|anfang|ende|mitte|mid|c\.)\b\s*'
 )
+# Davon heissen diese "ungefaehr" (EDTF `~`); die uebrigen fallen weg wie bisher.
+_UNGEFAEHR = re.compile(r'(?i)\b(circa|ca\.?|um|around|about|c\.)(?=\W|$)')
 
 def _fmt(year: str, month: str | None = None) -> str | None:
     try:
@@ -52,62 +54,70 @@ def _fmt(year: str, month: str | None = None) -> str | None:
         try:
             m = int(month)
             if 1 <= m <= 12:
-                return f"{y:04d}:{m:02d}"
+                return f"{y:04d}-{m:02d}"
         except (ValueError, TypeError):
             pass
     return f"{y:04d}"
 
 
-def parse_periode_pctm(text) -> str | None:
-    """Convert Haiku's Periode string to PCTM date format.
+def parse_periode_edtf(text) -> str | None:
+    """Haikus Periode-Rohwert als EDTF (Pictomap-Spezifikation Datumsformat).
 
-    Rules:
-      single point : yyyy  or  yyyy:mm
-      range        : yyyy-yyyy  or  yyyy:mm-yyyy:mm  (and mixed)
-    Separator year/month = ':', separator start/end = '-'.
+    Zeitpunkt: yyyy  oder  yyyy-mm;  Zeitraum: Anfang/Ende (auch gemischt).
+    "circa", "ca.", "um" → `~`, ein Fragezeichen → `?`, beides → `%`, jeweils
+    an jedem Ende.  Nie genauer als die Angabe.
     """
     if not text or str(text).strip() in ('', 'nan', 'None'):
         return None
-    s = _QUALIFIERS.sub('', str(text)).strip(' .,;')
+    zeichen = ("%" if "?" in str(text) else "~") if _UNGEFAEHR.search(str(text)) \
+        else ("?" if "?" in str(text) else "")
+    kern = _periode_kern(str(text).replace("?", ""))
+    if not kern or not zeichen:
+        return kern
+    return "/".join(t + zeichen for t in kern.split("/"))
+
+
+def _periode_kern(text) -> str | None:
+    s = _QUALIFIERS.sub('', _UNGEFAEHR.sub('', str(text))).strip(' .,;')
     if not s:
         return None
 
-    # yyyy:mm-yyyy:mm  (already in target format — normalise)
-    m = re.match(r'^(\d{4}):(\d{1,2})\s*[-–]\s*(\d{4}):(\d{1,2})$', s)
+    # yyyy:mm-yyyy:mm, yyyy-mm-yyyy-mm, yyyy-mm/yyyy-mm
+    m = re.match(r'^(\d{4})[-:](\d{1,2})\s*[-–/]\s*(\d{4})[-:](\d{1,2})$', s)
     if m:
         a = _fmt(m.group(1), m.group(2))
         b = _fmt(m.group(3), m.group(4))
-        return f"{a}-{b}" if a and b else None
+        return f"{a}/{b}" if a and b else None
 
     # yyyy-mm-yyyy  or  yyyy-yyyy:mm  (mixed)
-    m = re.match(r'^(\d{4})[-/](\d{1,2})\s*[-–]\s*(\d{4})$', s)
+    m = re.match(r'^(\d{4})[-:](\d{1,2})\s*[-–/]\s*(\d{4})$', s)
     if m and int(m.group(2)) <= 12:
         a = _fmt(m.group(1), m.group(2))
         b = _fmt(m.group(3))
-        return f"{a}-{b}" if a and b else None
+        return f"{a}/{b}" if a and b else None
 
-    m = re.match(r'^(\d{4})\s*[-–]\s*(\d{4})[-/](\d{1,2})$', s)
+    m = re.match(r'^(\d{4})\s*[-–/]\s*(\d{4})[-:](\d{1,2})$', s)
     if m and int(m.group(3)) <= 12:
         a = _fmt(m.group(1))
         b = _fmt(m.group(2), m.group(3))
-        return f"{a}-{b}" if a and b else None
+        return f"{a}/{b}" if a and b else None
 
     # yyyy-yyyy  (year range, second part may be 2 or 4 digits)
-    # Guard: 2-digit value ≤ 12 is a month (1947-09 → 1947:09, not 1947-1909)
-    m = re.match(r'^(\d{4})\s*[-–]\s*(\d{2,4})$', s)
+    # Guard: 2-digit value ≤ 12 is a month (1947-09 → 1947-09, not 1947/1909)
+    m = re.match(r'^(\d{4})\s*[-–/]\s*(\d{2,4})$', s)
     if m:
         second = m.group(2)
         y1 = int(m.group(1))
         raw = int(second)
         if len(second) == 2 and raw <= 12:
-            return _fmt(str(y1), second)   # treat as month: 1947-09 → 1947:09
+            return _fmt(str(y1), second)   # treat as month
         y2 = (y1 // 100) * 100 + raw if len(second) == 2 else raw  # 1914-18 → 1918
         if y2 > 12:
             a = _fmt(str(y1))
             b = _fmt(str(y2))
-            return f"{a}-{b}" if a and b else None
+            return f"{a}/{b}" if a and b else None
 
-    # yyyy-mm  (single month — 1-digit: 1947-9 → 1947:09)
+    # yyyy-mm  (single month — 1-digit: 1947-9 → 1947-09)
     m = re.match(r'^(\d{4})[-/:](\d{1,2})$', s)
     if m and int(m.group(2)) <= 12:
         return _fmt(m.group(1), m.group(2))
@@ -650,7 +660,7 @@ def _process_chunk(
         out = {
             "Title": rec.title,
             "Description": rec.description,
-            "Periode": parse_periode_pctm(meta.get("periode")),
+            "Periode": parse_periode_edtf(meta.get("periode")),
             "Urheber": meta.get("urheber"),
             "Technik": meta.get("technik"),
             "Country": _land_de(rec.country),
