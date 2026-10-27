@@ -565,7 +565,7 @@ function zeigeOrt(d) {
   paar('Gitter', z['Gitter'] == null ? null : z['Gitter'] + ' m', ERKL.gitter);
   paar('Score', z['Coord-Quality-Score'], ERKL.score); paar('Bildtyp', z['Bildtyp'], ERKL.bildtyp);
   const wd = q => q ? el('a', {href: 'https://www.wikidata.org/wiki/' + q, target: '_blank', rel: 'noopener'}, q) : null;
-  paar('Wikidata', wd(z['Wikidata']), ERKL.wikidata); paar('Wikidata-Ort', wd(z['Wikidata-Ort']));
+  paar('Wikidata', wd(z['wikidata']), ERKL.wikidata); paar('Wikidata-Ort', wd(z['wikidata_place']));
   if (z['Ambiguous']) paar('Ort mehrdeutig', 'ja');
   if (z['Nachgefasst']) paar('Nachgefasst', z['Nachgefasst']);
   if (z['Widerspruch']) paar('Widerspruch', z['Widerspruch']);

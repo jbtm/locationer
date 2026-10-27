@@ -128,7 +128,7 @@ ohne. **Vor jedem Deployment Version erhoehen, Zeile in description.md
 - Ohne Land + `location_kind = nature`: `geo_db.bedeutendes_gelaende(city)` (T/H, ≥ 10 Alternativnamen und ≥ 2× der nächste) wird Ortsanker (`GeoStack._ort_ist_gelaende`)
 
 ### Wikidata-Kennungen (seit v6.2.0)
-- Ausgabe `Wikidata` (Objekt, nur Score 4–5) und `Wikidata-Ort` (`GeoStack.qid_ort`, Ortspunkt und Gemeinde, der bekanntere)
+- Ausgabe `wikidata` (Objekt, nur Score 4–5) und `wikidata_place` (seit v6.3.1 wie die Directus-Felder; vorher `Wikidata`/`Wikidata-Ort`) (`GeoStack.qid_ort`, Ortspunkt und Gemeinde, der bekanntere)
 - Quelle des Treffers: Wikidata-QID, OSM `extratags` (`nominatim.wikidata_nachholen` für alte Cache-Einträge), GeoNames `wkdt` bzw. `Wikidata.qid_fuer("P1566", …)`, TGN `P1667`
 - `GeoResult.qid`: '' = keine, None = unbekannt (Fehler/alter Cache → wird neu bestimmt); Cache: `wikidata_ids`, Spalten `geo_cache.qid`, `nominatim_cache.wikidata`, `wikidata_cache.qid`
 

@@ -678,8 +678,9 @@ def _process_chunk(
             # Wikidata-Kennungen: gleiche QID = gleiches Motiv bzw. gleicher
             # Ort, sprachunabhaengig.  Motiv nur bei einem gefundenen Objekt,
             # Ort aus der endgueltigen Stadt (auch einer ergaenzten).
-            "Wikidata": (geo.qid or "") if (geo.lat is not None and not geo.fallback) else "",
-            "Wikidata-Ort": geostack.qid_ort(rec) if geo.lat is not None else "",
+            # Namen wie die Felder in Directus.
+            "wikidata": (geo.qid or "") if (geo.lat is not None and not geo.fallback) else "",
+            "wikidata_place": geostack.qid_ort(rec) if geo.lat is not None else "",
             "Ext-Calls": 1 if (geo.source in ("wikidata","nominatim") and geo.debug_info != ["cache hit"]) else 0,
         }
         if has_true_coords:

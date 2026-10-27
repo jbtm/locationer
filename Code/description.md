@@ -1618,9 +1618,9 @@ Statt einer eigenen Motiv-Datenbank speichert der Locationer die feste
 Wikidata-Kennung (QID) — gleiche QID = gleiches Motiv bzw. gleicher Ort,
 unabhängig von Sprache und Schreibweise. Zwei neue Ausgabespalten:
 
-- `Wikidata`: QID des gefundenen Objekts (nur Score 4–5, nicht bei Ortsmitte),
+- `wikidata` (bis v6.3.0 `Wikidata`): QID des gefundenen Objekts (nur Score 4–5, nicht bei Ortsmitte),
   z.B. Martinskirche Chur = Q1421539.
-- `Wikidata-Ort`: QID der endgültigen Stadt/Gemeinde (auch einer ergänzten),
+- `wikidata_place` (bis v6.3.0 `Wikidata-Ort`): QID der endgültigen Stadt/Gemeinde (auch einer ergänzten),
   z.B. Chur = Q69007.
 
 **Herkunft — immer aus der Quelle des Treffers, nie aus einer Namenssuche
@@ -1698,6 +1698,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.3.1 | 2026-10-27 | Spalten `Wikidata` → `wikidata` und `Wikidata-Ort` → `wikidata_place`, wie die Felder in Directus; Werte unverändert |
 | 6.3.0 | 2026-10-26 | Strassen müssen in der Gemeinde des Orts liegen (ausser Pass/Berg als Ort, Tunnel/Strecken); ohne Land wird ein bekanntes Gelände (Bodensee, Mont Blanc) zum Ortsanker statt eines gleichnamigen Dorfs |
 | 6.2.6 | 2026-10-26 | GUI: Spalte „Fertig ca.“ neben der Hochrechnung; Zeiten in Ortszeit des Betrachters (Register und Protokoll sind Server-UTC), Rechenzeit stimmt; Protokoll bleibt unten |
 | 6.2.5 | 2026-10-26 | GUI: getippte Grenze springt nicht mehr zurück; Meldung nach dem Hochladen zeigt das Prüfergebnis; „Zeilen“ mit neuen/verschiedenen, „Schätzung vorher“ nur der Betrag; Einzelabfrage aufklappbar |
