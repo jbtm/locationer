@@ -288,14 +288,14 @@ Optionale Spalten `lat_true` / `lon_true` (oder `Breitengrad` / `Längengrad`): 
 
 | Vorlagenspalte | Quelle |
 |---|---|
-| `Name` | `Title` — der von Haiku bereinigte Titel |
+| `Name` | Titel aus der Eingabe (Spalte wie bei Phase 1a: title, titel, titre, name, subject; HTML-Entitäten aufgelöst); nur wenn leer der von Haiku bereinigte Titel (seit v6.5.0) |
 | `Beschreibung` | `Description` |
-| `Periode` | `Periode` (EDTF) |
-| `Urheber:in` | `Urheber` |
+| `Periode` | Datum aus der Eingabe (periode, period, période, periodo, datierung, datum, date, fecha) nach EDTF; nur wenn leer oder unlesbar Haikus Wert (seit v6.5.0) |
+| `Urheber:in` | Urheber aus der Eingabe (urheber:in, urheber, creator, photographer, fotograf, photographe, author, auteur, autor …); nur wenn leer Haikus Wert (seit v6.5.0) |
 | **`Land`, `Region`, `Stadt/Ort`, `Breitengrad`, `Längengrad`** | **das Geocoding-Ergebnis** |
 | `Exakte Koordinaten`, `Datei`, `Quelle`, `Referenz`, `Bemerkungen` | die Eingabe, unverändert |
 
-Die Ortsangaben kommen bewusst aus dem Geocoding und nicht aus der Eingabe — sonst wäre die Datei beim Reimport wirkungslos. Die Originalwerte gehen nicht verloren: sie werden hinten durchgereicht.
+Die Ortsangaben kommen bewusst aus dem Geocoding und nicht aus der Eingabe — sonst wäre die Datei beim Reimport wirkungslos. Name, Urheber und Periode dagegen sind erfasste Angaben: dort gewinnt die Eingabe, Haiku füllt nur Lücken. Bis v6.4.0 überschrieb Haiku sie (ZIN: 10226 Titel umformuliert, 5715 Urheber geleert, rund 10000 „circa“ verloren). `annee` (DISCO) zählt bewusst nicht als Datum — Haiku liest dieselbe Spalte. Die Originalwerte gehen nicht verloren: sie werden hinten durchgereicht.
 
 **Namenskonflikte bekommen ein Suffix.** Eine durchgereichte Eingabespalte, deren Name schon vergeben ist, heisst `<Name>_original` (bei weiterer Kollision `_original2`). Bei den ZIN-Eingaben betrifft das `Beschreibung`, `Breitengrad`, `Längengrad` und `Urheber:in`. Ohne das Suffix stünden zwei gleichnamige Spalten in der Datei, und der Import könnte die falsche greifen — also die alte statt der geokodierten Koordinate.
 
@@ -343,13 +343,16 @@ von dem, was in der Nähe steht.
 | `circa 1890`, `ca. 1890`, `um 1890`, `c. 1890` | `1890~` | ungefähr |
 | `1923?` | `1923?` | unsicher; mit „ca.“ zusammen `1923%` |
 | `ca. 1910-1920` | `1910~/1920~` | Zeichen an jedem Ende |
-| `vor 1900`, `Mitte 1890` | `1900`, `1890` | übrige Wörter fallen weg (wie bisher) |
+| `Mitte 1890`, `early 1890` | `1890` | übrige Wörter fallen weg (wie bisher) |
 | `1914-1918` | `1914/1918` | Jahres-Range (4+4 Stellen) |
 | `1914-18` | `1914/1918` | Kurzjahr (2 Stellen, >12 → Jahres-Range) |
 | `1910-03` | `1910-03` | Monat (2 Stellen, ≤12 → Monat, nicht 1910/1903!) |
 | `1947-9` | `1947-09` | 1 Stelle → immer Monat |
 | `1910-03-1920-05`, `1910:03-1920:05` | `1910-03/1920-05` | Monats-Range |
 | `1910-1920:05` | `1910/1920-05` | gemischt |
+| `circa 1897 1934` | `1897~/1934~` | zwei Zeitpunkte mit Leerzeichen (seit v6.5.0) |
+| `1905-01-21`, `1905-01-21-1905-01-22` | gleich, bzw. `1905-01-21/1905-01-22` | Tage (seit v6.5.0); ungültiger Tag → leer |
+| `before 1905`, `vor 1905`, `avant`, `prima`, `after`, `nach`, `après`, `dopo` | `1905~` | „vor/nach“ als ungefähr statt offenem Ende `/1905` — bleibt sortierbar (Dec, 2026-10-31; seit v6.5.0) |
 | nicht erwähnt, Jahr < 1000 oder > 2100 | *(leer)* | kein Halluzinieren |
 
 **Kritische Unterscheidung:** `1947-09` = September 1947, nicht 1947/1909. Zweistellige Werte ≤ 12 sind immer ein Monat, > 12 ein Kurzjahr (`1914-18` → `1914/1918`).
@@ -1703,6 +1706,7 @@ neue Nummer und den Git-Tag `vX.Y.Z`.
 
 | Version | Datum | Was |
 |---|---|---|
+| 6.5.0 | 2026-10-31 | Eingabe gewinnt bei `Name`, `Urheber:in`, `Periode` (Haiku nur für Lücken); Datum aus der Eingabe nach EDTF, neu auch Tage, Leerzeichen-Zeiträume und „vor/nach“ als `~` |
 | 6.4.0 | 2026-10-27 | `Periode` im EDTF-Format statt PCTM (`1914/1918`, `1910-03`, `1890~`); „ca./um/circa“ wird zu `~` statt gestrichen |
 | 6.3.1 | 2026-10-27 | Spalten `Wikidata` → `wikidata` und `Wikidata-Ort` → `wikidata_place`, wie die Felder in Directus; Werte unverändert |
 | 6.3.0 | 2026-10-26 | Strassen müssen in der Gemeinde des Orts liegen (ausser Pass/Berg als Ort, Tunnel/Strecken); ohne Land wird ein bekanntes Gelände (Bodensee, Mont Blanc) zum Ortsanker statt eines gleichnamigen Dorfs |

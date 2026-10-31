@@ -5,6 +5,7 @@ auf dem Server (worker.py) und die Sofort-API (web.py) genau denselben Weg
 gehen wie der Terminal-Lauf.  `Umgebung` baut alle Datenbanken und Dienste
 fuer EINEN Thread; parallel laufende Pakete haben je eine eigene.
 """
+import datetime
 import math
 import os
 import re
@@ -29,21 +30,24 @@ from .geo_db import ascii_norm, ascii_norm_de
 from .input_normalizer import InputNormalizer
 from .kandidaten import Kandidatenpruefer
 from .nachfassen import Nachfasser
-from .input_normalizer import _woerter
+from .input_normalizer import _woerter, _clean
 from .models import GeoResult, NormalizedRecord
 from .nominatim import Nominatim
 from .pictomap_ref import REF_PATH as _PICTOMAP_REF_PATH, PictomapRef
 from .wikidata import Wikidata
 from .tgn_db import TgnDatabase
 
+_VOR_NACH = r'before|vor|avant|prima|antes|after|nach|après|apres|dopo|después|despues'
 _QUALIFIERS = re.compile(
-    r'(?i)\b(circa|ca\.?|um|vor|nach|around|about|early|late|'
-    r'frühes?|spätes?|anfang|ende|mitte|mid|c\.)\b\s*'
+    r'(?i)\b(circa|ca\.?|um|around|about|early|late|' + _VOR_NACH + r'|'
+    r'frühes?|spätes?|anfang|ende|mitte|mid|c\.)(?=\W|$)\s*'
 )
 # Davon heissen diese "ungefaehr" (EDTF `~`); die uebrigen fallen weg wie bisher.
-_UNGEFAEHR = re.compile(r'(?i)\b(circa|ca\.?|um|around|about|c\.)(?=\W|$)')
+# "vor/nach 1905" ebenfalls `~` statt offenem Ende (`/1905`): bleibt sortierbar
+# (Dec, 2026-10-31).
+_UNGEFAEHR = re.compile(r'(?i)\b(circa|ca\.?|um|around|about|c\.|' + _VOR_NACH + r')(?=\W|$)')
 
-def _fmt(year: str, month: str | None = None) -> str | None:
+def _fmt(year: str, month: str | None = None, day: str | None = None) -> str | None:
     try:
         y = int(year)
         if not (1000 <= y <= 2100):
@@ -54,6 +58,12 @@ def _fmt(year: str, month: str | None = None) -> str | None:
         try:
             m = int(month)
             if 1 <= m <= 12:
+                if day:
+                    try:
+                        datetime.date(y, m, int(day))
+                    except ValueError:                 # 31.02. → keine Angabe
+                        return None
+                    return f"{y:04d}-{m:02d}-{int(day):02d}"
                 return f"{y:04d}-{m:02d}"
         except (ValueError, TypeError):
             pass
@@ -63,9 +73,10 @@ def _fmt(year: str, month: str | None = None) -> str | None:
 def parse_periode_edtf(text) -> str | None:
     """Haikus Periode-Rohwert als EDTF (Pictomap-Spezifikation Datumsformat).
 
-    Zeitpunkt: yyyy  oder  yyyy-mm;  Zeitraum: Anfang/Ende (auch gemischt).
-    "circa", "ca.", "um" → `~`, ein Fragezeichen → `?`, beides → `%`, jeweils
-    an jedem Ende.  Nie genauer als die Angabe.
+    Zeitpunkt: yyyy, yyyy-mm oder yyyy-mm-dd;  Zeitraum: Anfang/Ende (auch
+    gemischt, auch mit Leerzeichen getrennt: "circa 1897 1934").
+    "circa", "ca.", "um", "vor", "nach" → `~`, ein Fragezeichen → `?`, beides
+    → `%`, jeweils an jedem Ende.  Nie genauer als die Angabe.
     """
     if not text or str(text).strip() in ('', 'nan', 'None'):
         return None
@@ -127,7 +138,43 @@ def _periode_kern(text) -> str | None:
     if m:
         return _fmt(m.group(1))
 
+    # yyyy-mm-dd  und  yyyy-mm-dd-yyyy-mm-dd
+    tag = r'(\d{4})-(\d{1,2})-(\d{1,2})'
+    m = re.match(rf'^{tag}$', s)
+    if m:
+        return _fmt(*m.groups())
+    m = re.match(rf'^{tag}\s*[-–/]\s*{tag}$', s)
+    if m:
+        a, b = _fmt(*m.groups()[:3]), _fmt(*m.groups()[3:])
+        return f"{a}/{b}" if a and b else None
+
+    # Zwei Zeitpunkte mit Leerzeichen: "1897 1934", "1928-12 1929-02"
+    teile = s.split()
+    if len(teile) == 2:
+        a, b = _periode_kern(teile[0]), _periode_kern(teile[1])
+        if a and b and "/" not in a + b:
+            return f"{a}/{b}"
+
     return None
+
+
+# Was in der Eingabe steht, gewinnt; Haiku fuellt nur Luecken (seit v6.5.0).
+# Spaltennamen wie in input_normalizer.COLUMN_MAP: klein, exakt.  `annee`
+# (DISCO) bewusst nicht — dort liefert Haiku aus derselben Spalte dasselbe.
+_URHEBER_SPALTEN = ["urheber:in", "urheber", "creator", "photographer", "fotograf", "fotografin",
+                    "photographe", "fotografo", "author", "auteur", "autor", "autore"]
+_PERIODE_SPALTEN = ["periode", "period", "période", "periodo", "datierung", "datum", "date", "fecha"]
+
+
+def _aus_eingabe(row: dict, spalten: list[str]) -> str:
+    """Erster nicht leerer Wert der genannten Eingabespalten, bereinigt wie der Titel."""
+    low = {str(k).lower().strip(): v for k, v in row.items()}
+    for name in spalten:
+        v = low.get(name)
+        v = "" if v is None or (isinstance(v, float) and v != v) else _clean(str(v))
+        if v:
+            return v
+    return ""
 
 
 _EXTRA_DESC_COLS = [c.strip() for c in os.getenv("EXTRA_DESC_COLS", "").split(",") if c.strip()]
@@ -658,10 +705,14 @@ def _process_chunk(
         _punkt = ist_punkt(geo, geostack)
 
         out = {
-            "Title": rec.title,
+            # Eingabe vor Haiku: Titel unveraendert, Urheber wie erfasst, Datum
+            # aus der Eingabe nach EDTF — Haiku nur, wo die Eingabe nichts hat
+            # oder das Datum nicht lesbar ist.
+            "Title": rec.input_title or rec.title,
             "Description": rec.description,
-            "Periode": parse_periode_edtf(meta.get("periode")),
-            "Urheber": meta.get("urheber"),
+            "Periode": (parse_periode_edtf(_aus_eingabe(row, _PERIODE_SPALTEN))
+                        or parse_periode_edtf(meta.get("periode"))),
+            "Urheber": _aus_eingabe(row, _URHEBER_SPALTEN) or meta.get("urheber"),
             "Technik": meta.get("technik"),
             "Country": _land_de(rec.country),
             "Region": region,
